@@ -135,6 +135,7 @@ Each one teaches a new idea. Do they interest you? Re-order or drop any.
 | 6 | Chorus / flanger | modulated delay, fractional delay, interpolation |
 | 7 | Reverb | many delays + all-pass filters, resource budget |
 | 8 | Noise gate / compressor | envelope detection, dynamics |
+| opt | Hum notch (50 Hz + harmonics) | IIR biquad notch, cascading filters (after #4) |
 
 - Q6.1 Delay memory: at 48 kHz × 24 bits, how many seconds of delay fit in the
   XC7A35T's block RAM (50 × 36 Kb)? Work it out. Is that enough, or do you
