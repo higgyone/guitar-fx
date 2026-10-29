@@ -1,0 +1,35 @@
+# Pre-commit hooks for the guitar-fx project.
+#
+# One-time setup (per PC, since .git/hooks is not tracked in git):
+#   Install the `pre-commit` driver in its own isolated venv, then put the
+#   launcher on PATH (pipx is broken on the dev box -- a Windows launcher
+#   encoding bug -- so this is the manual pipx-equivalent):
+#     python -m venv ~/.venvs/pre-commit
+#     ~/.venvs/pre-commit/Scripts/python -m pip install pre-commit
+#     cp ~/.venvs/pre-commit/Scripts/pre-commit.exe ~/.local/bin/   # on PATH
+#     cd <repo> && pre-commit install
+#   (Or simply `pip install pre-commit` into your base env if you don't
+#   care about isolation.) The VSG hook itself is pinned + isolated by
+#   pre-commit regardless, at rev 3.35.0 below.
+#
+# After that, every `git commit` runs VSG on the staged *.vhd files.
+# The config lives in vsg_config.yaml (tracked), so both PCs stay in sync.
+#
+# Manual full-repo run any time:
+#     pre-commit run --all-files
+#
+# Modes:
+#   auto-fix (current)   — the hook rewrites staged files to VSG style. If it
+#                          changes anything the commit aborts with "files were
+#                          modified by this hook"; `git add` the fixes and
+#                          commit again. Nothing unstaged is touched.
+#   check-only           — remove "--fix" from args below; the commit then
+#                          FAILS on violations instead of fixing them, and you
+#                          run `vsg --fix` (or fix by hand) yourself.
+
+repos:
+  - repo: https://github.com/jeremiah-c-leary/vhdl-style-guide
+    rev: 3.35.0
+    hooks:
+      - id: vsg
+        args: [-c, vsg_config.yaml, --fix]   # auto-style staged VHDL on commit

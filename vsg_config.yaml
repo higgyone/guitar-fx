@@ -1,0 +1,43 @@
+# VHDL Style Guide (VSG) configuration for guitar-fx.
+# Same rules as the ULA project.
+#
+# VSG's default style is the canonical formatter (like black / gofmt): it owns
+# whitespace, indentation, casing, alignment and layout. Run it, don't argue
+# with it.
+#
+# Check: vsg -f <file.vhd> -c vsg_config.yaml
+# Fix:   vsg -f <file.vhd> -c vsg_config.yaml --fix
+#
+# The pre-commit hook (.pre-commit-config.yaml) runs this with --fix on every
+# commit, so committed VHDL is always VSG-clean.
+
+rule:
+  global:
+    indent_size: 4
+
+  # ---- Deliberate opt-outs (same as ULA). Everything else is default. ----
+
+  # Signal / variable initial values are allowed. Xilinx FPGAs load them at
+  # configuration, and testbench models rely on them.
+  signal_007:
+    disable: true
+  variable_007:
+    disable: true
+
+  # Ports may carry (or omit) default values.
+  port_012:
+    disable: true
+
+  # Direct entity instantiation (`entity work.foo(rtl)`) is the chosen style.
+  # 034 wants component instantiation, 036 wants an architecture name on
+  # every instance. Both disabled.
+  instantiation_034:
+    disable: true
+  instantiation_036:
+    disable: true
+
+  # Process labels are optional.
+  process_016:
+    disable: true
+  process_018:
+    disable: true

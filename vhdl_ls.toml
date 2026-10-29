@@ -1,0 +1,11 @@
+# Configuration for the VHDL LS language server (rust_hdl / vhdl-ls).
+# Docs: https://github.com/VHDL-LS/rust_hdl
+# Library is `defaultlib`: VHDL LS reserves `work` as the current-library alias.
+
+[libraries]
+defaultlib.files = [
+    "rtl/**/*.vhd",
+    "sim/**/*.vhd",
+]
+
+[lint]
