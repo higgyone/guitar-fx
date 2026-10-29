@@ -30,8 +30,7 @@ Pmod I2S2 line input, without loading the pickups.
 - P2 Final pedal supply: 9 V single rail (pedal standard), or higher for
   headroom? Single supply needs a Vbias = Vsupply/2 reference.
 - P6 ~~I2S2 line-in full-scale level?~~ Found — see "Converter levels".
-- P8 Pmod I2S2 input network (coupling cap / resistors in front of the
-  CS5343): check the Pmod schematic for the impedance the preamp drives.
+- P8 ~~Pmod I2S2 input network~~ Found — see "Pmod I2S2 analog circuits".
 
 ## Converter levels (Pmod powered at VA = 3.3 V)
 
@@ -48,7 +47,94 @@ from IC2 marking), p6 = automotive grade (-DZZ). Full scale is near-identical.
 Specs hold for a **source impedance ≤ 2.5 kΩ** → the ADC must be driven by the
 preamp's op-amp output, never directly by the pickup.
 
-Preamp target: loudest guitar peak ≈ −6 dB below ADC full scale.
+## Pmod I2S2 analog circuits (schematic Rev A.0, `pmodi2s2_sch.pdf`)
+
+**Line in (J3, blue), per channel:**
+
+    jack ── R7 5.1k ──┬── C14 1uF ──┬── AIN (CS5343, 7.5 MΩ)
+                      R9 5.1k       C19 180pF
+                      GND           GND
+
+- R7/R9 = 2:1 divider. **Full scale at the jack ≈ 2 × 1.87 = 3.75 Vpp
+  (1.87 V peak).** Use this, not the chip figure, for preamp gain.
+- Input impedance at the jack ≈ 10.2 kΩ (R7 + R9). The preamp drives this.
+- ADC source impedance = R7 ∥ R9 = 2.55 kΩ (meets datasheet ≤ 2.5 kΩ, near enough).
+- No DC block before R7 → preamp needs its own output coupling cap.
+- C19 + 2.55 kΩ: low-pass ≈ 350 kHz (RF / anti-alias guard).
+
+**Line out (J2, green), per channel:** DAC → C4 3.3 µF (DC block) → R3 10 kΩ
+to GND → R1 470 Ω series → jack; C6 2.7 nF to GND at the jack (low-pass
+≈ 125 kHz). Output ≈ 2.15 Vpp from ≈ 470 Ω.
+
+Preamp target: loudest guitar peak ≈ −6 dB below full scale **at the jack**.
+
+## Single-supply biasing (how it works)
+
+- Op-amp output can only swing between its rails. On 0 V / +9 V, a signal
+  centred on 0 V loses its negative half.
+- Fix: centre everything on **Vbias = Vsupply / 2 = 4.5 V** ("virtual
+  ground"). Made by two equal resistors (e.g. 100k/100k) + a large cap to GND
+  (e.g. 47 µF) to hold it steady and filter supply noise.
+- **Input:** C_in blocks DC (guitar at 0 V, op-amp at 4.5 V). 1 MΩ from (+)
+  to Vbias sets the DC level and is the input impedance.
+- **Gain trap:** non-inverting gain applies to DC too. Rg straight to GND →
+  Vout(DC) = G × 4.5 V → hits the rail. **C_g in series with Rg**: at DC it
+  blocks → gain 1 → output sits at 4.5 V; at audio it passes → gain G.
+- **Output:** C_out removes the 4.5 V before the Pmod (which has no DC block
+  ahead of its divider).
+- Each cap + resistor is a high-pass: `f = 1 / (2πRC)`, aim < ~10 Hz.
+
+```
+                         +9 V
+                          │
+guitar ── C_in ──┬───── (+)\
+                 │          op-amp ──┬──── C_out ──── Pmod line in
+                1M       ┌─(−)/      │                (10.2 kΩ)
+                 │       │           │
+               Vbias     ├── Rf (4.7k + 50k pot) ──┘
+              (4.5 V)    │
+                         Rg 10k
+                         │
+                        C_g
+                         │
+                        GND
+```
+
+Cap values (target f ≈ 5 Hz, round **up** — bigger C = lower cutoff):
+
+| Part | Value | Cutoff | Notes |
+|------|-------|--------|-------|
+| C_in | 33 nF film | 4.8 Hz (1 MΩ) | non-polar |
+| C_g | 3.3 µF electrolytic | 4.8 Hz (10 kΩ) | + to Rg (4.5 V), − to GND |
+| C_out | 3.3 µF electrolytic | 4.7 Hz (10.2 kΩ Pmod) | + to op-amp out (4.5 V), − to Pmod (0 V) |
+
+Still to do: Vbias divider values + filter cap; op-amp choice; supply
+filtering / reverse-polarity protection.
+
+## Mains hum (50 Hz UK)
+
+No analog 50/60 Hz filter in the preamp:
+- Inside the guitar's range (low E 82 Hz, drop D 73 Hz) — a notch thins the tone.
+- Single-coil hum is mostly harmonics (100, 150, 200 Hz …): one notch removes little.
+- Analog notches (twin-T) need matched parts and drift.
+
+Reduce at source instead: grounded metal enclosure, single star ground, short
+high-impedance input wiring, filtered supply and Vbias, input traces away from
+power. Residual hum → handled digitally (noise gate; optional IIR notch at
+50 Hz + harmonics — see spec §6).
+
+## Gain
+
+- Full-scale peak at jack: 3.75 Vpp / 2 = 1.875 V. Target (−6 dB): **≈ 0.94 V peak**.
+- Guitar peak: not measured yet (typical single coil 0.3–0.5 V, hard strum).
+  Measure: scope ×10 probe, bridge pickup, volume/tone full, single-shot
+  trigger ~100 mV, hardest strum.
+- Gain needed = 0.94 / guitar peak → ≈ 1.9 (0.5 V) … 3.1 (0.3 V) … 4.7 (0.2 V).
+- Design: adjustable **G ≈ 1.5 … 5**, non-inverting, `G = 1 + Rf/Rg`,
+  Rf = fixed + trim pot.
+- **Chosen: Rg = 10 kΩ, Rf = 4.7 kΩ + 50 kΩ trim pot → G = 1.47 … 6.47.**
+  Top of range can overdrive the ADC with hot pickups (clips, no damage:
+  Pmod R7 5.1 kΩ limits current). Set the pot on the bench with the scope.
 - P7 Op-amp choice — see below.
 
 ## Op-amp selection
