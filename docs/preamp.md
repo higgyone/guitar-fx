@@ -108,8 +108,53 @@ Cap values (target f ≈ 5 Hz, round **up** — bigger C = lower cutoff):
 | C_g | 3.3 µF electrolytic | 4.8 Hz (10 kΩ) | + to Rg (4.5 V), − to GND |
 | C_out | 3.3 µF electrolytic | 4.7 Hz (10.2 kΩ Pmod) | + to op-amp out (4.5 V), − to Pmod (0 V) |
 
-Still to do: Vbias divider values + filter cap; op-amp choice; supply
-filtering / reverse-polarity protection.
+## Vbias
+
+    +9 V ── R1 100k ──┬── R2 100k ── GND
+                      ├── Vbias 4.5 V → 1 MΩ input bias resistor
+                      C_bias 10 µF (+ to Vbias) ── GND
+
+- Noise on Vbias enters the (+) input via the 1 MΩ and is amplified by G —
+  so Vbias must be well filtered.
+- Divider current: 9 V / 200 kΩ = 45 µA. Load is only the 1 MΩ → no buffer.
+- Filter source resistance R1 ∥ R2 = 50 kΩ. τ = 50k × 10 µF = 0.5 s.
+- Cutoff 1/(2πτ) = 0.32 Hz → 100 Hz ripple cut ≈ 310× (−50 dB).
+- Start-up: settles in ≈ 5τ = 2.5 s (acceptable for a pedal).
+- Rejected: 4.7 µF (0.68 Hz, 1.2 s, −43 dB).
+- **Buffer:** use the dual op-amp's spare half as a unity follower on the
+  filtered node → low-impedance Vbias. The 10 µF stays on the follower
+  *input*, never directly on its output (capacitive load → oscillation; add
+  ~100 Ω series if any C is needed on the output). Never leave a spare half
+  floating.
+- A buffer does **not** speed up settling: it copies the RC node, which still
+  settles in ≈ 2.5 s. Faster settle = smaller RC = less filtering.
+- **Power-up thump:** handled digitally — FPGA mutes the input for a few
+  seconds after reset, then ramps the gain up (~50 ms). See spec §6.
+
+## Supply input
+
+Pedal standard: **9 V DC, 2.1 mm barrel, centre negative** (Boss). Bench
+supply for development.
+
+    DC jack ──|>|── R_s 100 Ω ──┬────────────┬── V+ (op-amp, Vbias divider)
+            D1 1N5817           C_s 470 µF   100 nF ceramic at op-amp pin
+                                │            │
+    GND ────────────────────────┴────────────┴──
+
+- D1 series Schottky: reverse-polarity block, ≈ 0.35 V drop. (Alternatives:
+  shunt diode — harsh on supply; P-MOSFET — ≈ 0 V drop, more parts.)
+- R_s / C_s low-pass: 470 µF → f ≈ 3.4 Hz, 100 Hz ripple ≈ −29 dB.
+  (100 µF would give 16 Hz, only −16 dB.)
+- 100 nF ceramic as close as possible to the op-amp supply pin (HF decoupling).
+- Caps rated ≥ 25 V (≥ 2× supply; survives an 18 V adaptor).
+- Supply at circuit ≈ 9 − 0.35 − (5 mA × 100 Ω) = **8.15 V** (check op-amp
+  quiescent current). Vbias = half = 4.075 V automatically (ratio divider).
+- Swing ≈ ±4 V around Vbias (less without RRO): covers 0.94 V target and the
+  3.2 V worst case at max gain.
+- Ripple defence in depth: supply RC (−29 dB) → Vbias RC (−50 dB, the
+  critical one) → op-amp PSRR (typ. 80–120 dB at 100 Hz).
+
+Still to do: op-amp choice.
 
 ## Mains hum (50 Hz UK)
 
@@ -161,9 +206,12 @@ Candidates to compare (verify every figure against the datasheet):
 FET/CMOS-input audio op-amps such as TI OPA1656, OPA1642, OPA1678, and
 ADI ADA4625. Fill in the table:
 
-| Part | Input type | e_n @1 kHz | i_n | I_b | Supply range | RRO? | Price |
-|------|-----------|-----------|-----|-----|--------------|------|-------|
-|      |           |           |     |     |              |      |       |
+| Part | Input type | e_n @1 kHz | i_n | I_b | Supply range | RRO? | PSRR @100 Hz | I_q per amp | Price |
+|------|-----------|-----------|-----|-----|--------------|------|--------------|-------------|-------|
+|      |           |           |     |     |              |      |              |             |       |
+
+Must run from ≈ 8 V single supply (after D1 + R_s). Dual package: one half
+gain stage, one half Vbias buffer.
 
 ## Also needed: output side
 
