@@ -1,0 +1,48 @@
+# Vivado project is regenerated from scripts/create_project.tcl on each PC.
+# Nothing under build/ is tracked.
+build/
+
+# Vivado logs / journals / junk
+*.jou
+*.log
+*.backup.*
+*.str
+.Xil/
+hd_visual/
+usage_statistics_ext_xsim.*
+webtalk*
+xsim.dir/
+*.wdb
+*.pb
+
+# Bitstreams and checkpoints (rebuild from source)
+*.bit
+*.bin
+*.mcs
+*.prm
+*.dcp
+*.ltx
+
+# GHDL artefacts
+*.cf
+*.ghw
+*.o
+e~*
+
+# Python (DSP models)
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+
+# Generated simulation data (stimulus / output vectors, rendered audio)
+sim/out/
+
+# Editor / OS noise
+*.swp
+*~
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.code-workspace

@@ -1,0 +1,22 @@
+# EditorConfig (https://editorconfig.org) for the guitar-fx project.
+# Makes the editor's Tab key produce the same 4-space indent that VSG
+# enforces (see vsg_config.yaml), so hand-editing and the formatter agree.
+# VS Code honours this via the built-in EditorConfig support / extension.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# VHDL / HDL sources: 4-space indent, Tab key inserts spaces, tab width 4.
+[*.{vhd,vhdl,v,sv}]
+indent_style = space
+indent_size = 4
+tab_width = 4
+
+[*.{yaml,yml}]
+indent_style = space
+indent_size = 2

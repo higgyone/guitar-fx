@@ -1,0 +1,25 @@
+# Default: auto-detect text and normalise line endings to LF in the repo
+* text=auto eol=lf
+
+# HDL / constraints / project sources — always text
+*.vhd     text
+*.vhdl    text
+*.v       text
+*.sv      text
+*.xdc     text
+*.tcl     text
+*.xpr     text
+*.xml     text
+*.txt     text
+*.md      text
+
+# Vivado-generated binaries — never normalise
+*.bit     binary
+*.dcp     binary
+*.ltx     binary
+*.mcs     binary
+*.bin     binary
+*.wdb     binary
+*.py      text
+*.ps1     text
+*.wav     binary
