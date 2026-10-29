@@ -43,6 +43,11 @@ Pmod I2S2 line input, without loading the pickups.
 | DAC output impedance | 100 Ω (typ) | — | CS4344/45/48 datasheet p6 |
 | DAC min AC load / max load C | 3 kΩ / 100 pF | — | CS4344/45/48 datasheet p6 |
 
+CS5343/44 datasheet: p5 = commercial grade (-CZZ, assumed on the Pmod; confirm
+from IC2 marking), p6 = automotive grade (-DZZ). Full scale is near-identical.
+Specs hold for a **source impedance ≤ 2.5 kΩ** → the ADC must be driven by the
+preamp's op-amp output, never directly by the pickup.
+
 Preamp target: loudest guitar peak ≈ −6 dB below ADC full scale.
 - P7 Op-amp choice — see below.
 

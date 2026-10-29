@@ -70,6 +70,15 @@ I2S, 3.5 mm line in/out, plugs into one Pmod port).
 Board oscillator is 100 MHz. I2S needs a master clock (MCLK, usually 256 ×
 fs, e.g. 12.288 MHz for 48 kHz), a bit clock and a left/right clock.
 
+**Pmod I2S2 facts (reference manual):**
+- 48 kHz: MCLK = 12.288 MHz (256 × Fs), SCLK = 64 × LRCK, LRCK = Fs.
+- JP1 = ADC master/slave. Slave (SLV): FPGA generates MCLK/SCLK/LRCK for both
+  converters (simplest: one set of clocks for in and out).
+- I2S: MSB first, one SCLK after the LRCK edge; data changes on SCLK falling
+  edge, valid on rising edge.
+- Manual's ADC ratio table says "784x" — typo for 768x.
+- Supply 3.0–5.25 V, 3.3 V recommended (VA = 3.3 V).
+
 - Q4.1 Generate MCLK with the MMCM (clocking wizard / primitive), or divide
   down? What is wrong with dividing 100 MHz to get 12.288 MHz? ?
 - Q4.2 One clock domain for the DSP (e.g. 100 MHz with a 1-cycle "sample
