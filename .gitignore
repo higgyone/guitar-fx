@@ -46,3 +46,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.code-workspace
+
+# Vendor datasheets (copyrighted, kept local only)
+datasheets/

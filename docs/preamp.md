@@ -29,8 +29,21 @@ Pmod I2S2 line input, without loading the pickups.
 
 - P2 Final pedal supply: 9 V single rail (pedal standard), or higher for
   headroom? Single supply needs a Vbias = Vsupply/2 reference.
-- P6 What is the I2S2 line-in full-scale level? (Look it up: Pmod I2S2
-  reference manual + CS5343 datasheet.)
+- P6 ~~I2S2 line-in full-scale level?~~ Found — see "Converter levels".
+- P8 Pmod I2S2 input network (coupling cap / resistors in front of the
+  CS5343): check the Pmod schematic for the impedance the preamp drives.
+
+## Converter levels (Pmod powered at VA = 3.3 V)
+
+| Item | Spec | At 3.3 V | Source |
+|------|------|----------|--------|
+| ADC full-scale input (CS5343) | 0.568 × VA Vpp (typ) | 1.87 Vpp = 0.94 V peak | CS5343/44 datasheet p5 |
+| ADC input impedance (chip) | 7.5 MΩ (typ) | — | CS5343/44 datasheet p5 |
+| DAC full-scale output (CS4344) | 0.65 × VA Vpp (typ; 0.60–0.70) | 2.15 Vpp (1.98–2.31) | CS4344/45/48 datasheet p6 |
+| DAC output impedance | 100 Ω (typ) | — | CS4344/45/48 datasheet p6 |
+| DAC min AC load / max load C | 3 kΩ / 100 pF | — | CS4344/45/48 datasheet p6 |
+
+Preamp target: loudest guitar peak ≈ −6 dB below ADC full scale.
 - P7 Op-amp choice — see below.
 
 ## Op-amp selection
