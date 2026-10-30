@@ -149,14 +149,16 @@ Pedal standard: **9 V DC, 2.1 mm barrel, centre negative** (Boss). Bench
 supply for development.
 
     DC jack ──|>|── R_s 100 Ω ──┬────────────┬── V+ (op-amp, Vbias divider)
-            D1 1N5817           C_s 470 µF   100 nF ceramic at op-amp pin
+            D1 1N5817           C_s 100 µF   100 nF ceramic at op-amp pin
                                 │            │
     GND ────────────────────────┴────────────┴──
 
 - D1 series Schottky: reverse-polarity block, ≈ 0.35 V drop. (Alternatives:
   shunt diode — harsh on supply; P-MOSFET — ≈ 0 V drop, more parts.)
-- R_s / C_s low-pass: 470 µF → f ≈ 3.4 Hz, 100 Hz ripple ≈ −29 dB.
-  (100 µF would give 16 Hz, only −16 dB.)
+- R_s / C_s low-pass: 100 µF → f ≈ 16 Hz, 100 Hz ripple ≈ −16 dB. Enough:
+  the op-amp's own supply rejection does most of the work, and Vbias has its
+  own filter (R2 ∥ R3 = 50 k with C3 10 µF → 0.3 Hz). 470 µF (3.4 Hz,
+  −29 dB) was dropped as physically too big for no audible gain.
 - 100 nF ceramic as close as possible to the op-amp supply pin (HF decoupling).
 - Caps rated ≥ 25 V (≥ 2× supply; survives an 18 V adaptor).
 - Supply at circuit ≈ 9 − 0.35 − (5 mA × 100 Ω) = **8.15 V** (check op-amp

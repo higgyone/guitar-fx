@@ -1700,145 +1700,6 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "power:+9V"
-			(power global)
-			(pin_numbers
-				(hide yes)
-			)
-			(pin_names
-				(offset 0)
-				(hide yes)
-			)
-			(exclude_from_sim no)
-			(in_bom yes)
-			(on_board yes)
-			(in_pos_files yes)
-			(duplicate_pin_numbers_are_jumpers no)
-			(property "Reference" "#PWR"
-				(at 0 -3.81 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Value" "+9V"
-				(at 0 3.556 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Footprint" ""
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Datasheet" ""
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Description" "Power symbol creates a global label with name \"+9V\""
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "ki_keywords" "global power"
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(symbol "+9V_0_1"
-				(polyline
-					(pts
-						(xy -0.762 1.27) (xy 0 2.54)
-					)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 0 2.54) (xy 0.762 1.27)
-					)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 0 0) (xy 0 2.54)
-					)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-			)
-			(symbol "+9V_1_1"
-				(pin power_in line
-					(at 0 0 90)
-					(length 0)
-					(name ""
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-			)
-			(embedded_fonts no)
-		)
 		(symbol "power:GND"
 			(power global)
 			(pin_numbers
@@ -2377,12 +2238,6 @@
 		(uuid "5d54ad23-d2aa-4c22-ab30-35cce536a7bd")
 	)
 	(junction
-		(at 45.72 53.34)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "684a6f89-1776-4491-b7e2-f6f7128f0c7e")
-	)
-	(junction
 		(at 135.89 26.67)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -2411,12 +2266,6 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "bc10b997-e034-4886-8c70-470db60e7e21")
-	)
-	(junction
-		(at 63.5 53.34)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "dd092fc1-9d61-4ff2-94ed-432b7d4cb9f2")
 	)
 	(junction
 		(at 139.7 26.67)
@@ -2473,16 +2322,6 @@
 			(type default)
 		)
 		(uuid "061d0261-27a5-5256-8100-a2df21cfc676")
-	)
-	(wire
-		(pts
-			(xy 36.83 53.34) (xy 45.72 53.34)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "084407d1-bd25-5b25-91ed-4c17a0f38681")
 	)
 	(wire
 		(pts
@@ -2566,7 +2405,7 @@
 	)
 	(wire
 		(pts
-			(xy 45.72 53.34) (xy 50.8 53.34)
+			(xy 36.83 53.34) (xy 50.8 53.34)
 		)
 		(stroke
 			(width 0)
@@ -2746,16 +2585,6 @@
 	)
 	(wire
 		(pts
-			(xy 63.5 50.8) (xy 63.5 53.34)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "5f2b77df-b266-4882-886e-012399cac8a3")
-	)
-	(wire
-		(pts
 			(xy 182.88 96.52) (xy 182.88 99.06)
 		)
 		(stroke
@@ -2773,16 +2602,6 @@
 			(type default)
 		)
 		(uuid "5f965688-5e43-4c7b-a2be-a6c99c5f7ee1")
-	)
-	(wire
-		(pts
-			(xy 45.72 50.8) (xy 45.72 53.34)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "607ef0d5-b1ef-4f6b-94fc-118b3bf3f158")
 	)
 	(wire
 		(pts
@@ -2836,7 +2655,7 @@
 	)
 	(wire
 		(pts
-			(xy 63.5 53.34) (xy 68.58 53.34)
+			(xy 58.42 53.34) (xy 68.58 53.34)
 		)
 		(stroke
 			(width 0)
@@ -2993,16 +2812,6 @@
 			(type default)
 		)
 		(uuid "c01e5f61-a9aa-56b9-a5a6-14322d082fa6")
-	)
-	(wire
-		(pts
-			(xy 58.42 53.34) (xy 63.5 53.34)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "c8c5bd6c-e348-55d8-afe7-cda63786751c")
 	)
 	(wire
 		(pts
@@ -3336,84 +3145,6 @@
 			(project "preamp"
 				(path "/b570cdde-1936-5608-96c2-4a74dd01f7d2"
 					(reference "C4")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "power:+9V")
-		(at 45.72 50.8 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "1641727b-d282-4d21-bbc2-14eb817c63f0")
-		(property "Reference" "#PWR019"
-			(at 45.72 54.61 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "+9V_raw"
-			(at 45.72 45.72 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 45.72 50.8 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 45.72 50.8 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"+9V\""
-			(at 45.72 50.8 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "d06ebc83-9db8-4315-9a40-4f711438c36e")
-		)
-		(instances
-			(project "preamp"
-				(path "/b570cdde-1936-5608-96c2-4a74dd01f7d2"
-					(reference "#PWR019")
 					(unit 1)
 				)
 			)
@@ -5777,84 +5508,6 @@
 		)
 	)
 	(symbol
-		(lib_id "power:+9V")
-		(at 63.5 50.8 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "d3b255d1-ac78-44e2-afb1-6e9e9500906a")
-		(property "Reference" "#PWR020"
-			(at 63.5 54.61 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "Vin_protect"
-			(at 63.5 45.72 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 63.5 50.8 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 63.5 50.8 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"+9V\""
-			(at 63.5 50.8 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "e77acf2d-8997-45da-873d-92514b89dbc9")
-		)
-		(instances
-			(project "preamp"
-				(path "/b570cdde-1936-5608-96c2-4a74dd01f7d2"
-					(reference "#PWR020")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "Device:C_Polarized")
 		(at 105.41 118.11 0)
 		(unit 1)
@@ -5957,7 +5610,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "470u 25V"
+		(property "Value" "100u 25V"
 			(at 127 40.386 0)
 			(show_name no)
 			(do_not_autoplace no)
