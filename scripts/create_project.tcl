@@ -9,13 +9,13 @@
 # or in the Vivado Tcl console:
 #   cd D:/Repos/guitar-fx
 #   source scripts/create_project.tcl
-# then open build/vivado/guitar_fx.xpr.
+# then open build/vivado/guitar-fx.xpr.
 #
 # Re-running it deletes and rebuilds the project (-force). Anything set only
 # in the GUI is lost, so put lasting settings here.
 
 set repo_dir  [file normalize [file join [file dirname [info script]] ..]]
-set proj_name guitar_fx
+set proj_name guitar-fx
 set proj_dir  [file join $repo_dir build vivado]
 
 # Arty A7-35T. No board part: Vivado 2025.2 has no Arty board files

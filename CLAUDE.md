@@ -42,7 +42,7 @@ push when stopping.**
 Rules that keep both PCs working:
 
 - **The Vivado project is not tracked.** `scripts/create_project.tcl`
-  rebuilds it into `build/vivado/guitar_fx.xpr` (gitignored). It globs
+  rebuilds it into `build/vivado/guitar-fx.xpr` (gitignored). It globs
   `rtl/*.vhd` (synthesis + sim), `sim/*.vhd` (sim only) and
   `constraints/*.xdc`, all as VHDL-2008 and added by reference. After adding
   or removing a file, **re-run the script** (it rebuilds the project from
