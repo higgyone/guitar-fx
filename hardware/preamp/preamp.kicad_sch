@@ -4219,7 +4219,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "OPA1656 (TBD)"
+		(property "Value" "OPA1642AID"
 			(at 112.522 20.828 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -4318,7 +4318,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "OPA1656 (TBD)"
+		(property "Value" "OPA1642AID"
 			(at 54.61 153.67 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5937,7 +5937,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "OPA1656 (TBD)"
+		(property "Value" "OPA1642AID"
 			(at 119.38 90.17 0)
 			(show_name no)
 			(do_not_autoplace no)

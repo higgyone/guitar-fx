@@ -2,8 +2,9 @@
 
 Status: **schematic first draft** —
 [hardware/preamp/preamp.kicad_sch](../hardware/preamp/preamp.kicad_sch)
-(KiCad 10). Op-amp still to choose (OPA1656 symbol is a placeholder; all
-candidates share the standard dual SOIC-8 pinout).
+(KiCad 10). Op-amp: **TI OPA1642AID** (dual JFET-input, SOIC-8). KiCad
+has no OPA1642 symbol, so U1 uses the OPA1656ID symbol with the value
+OPA1642AID: same standard dual SOIC-8 pinout.
 
 Schematic notes (additions / deviations from the text below):
 - R4 2M2 input pull-down on the jack side of C_in (no click on plug-in).
@@ -233,6 +234,12 @@ ADI ADA4625. Fill in the table:
 
 Must run from ≈ 8 V single supply (after D1 + R_s). Dual package: one half
 gain stage, one half Vbias buffer.
+
+**Chosen: OPA1642AID.** JFET input (pA bias current, fine with the 1 MΩ
+bias resistor), 4.5–36 V supply, rail-to-rail output, ~5 nV/√Hz,
+~1.8 mA per amp. Unity-gain stable for the Vbias follower.
+Drop-in alternatives (same pinout, no other changes): OPA1652AID (FET,
+4.5–36 V), TLC2272CDR (CMOS, 16 V max, so not for an 18 V adaptor).
 
 ## Also needed: output side
 
