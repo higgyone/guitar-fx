@@ -85,4 +85,5 @@ model/        Python reference models, stimulus + golden vector generators
 constraints/  XDC (Digilent master XDC, pins uncommented as used)
 scripts/      create_project.tcl, GHDL run scripts
 docs/         spec, notes, Vivado-PC TODO
+hardware/     KiCad 10 projects (preamp/), one folder per board
 ```

@@ -1,6 +1,18 @@
 # Guitar preamp / buffer
 
-Status: **requirements draft.** Design not started.
+Status: **schematic first draft** —
+[hardware/preamp/preamp.kicad_sch](../hardware/preamp/preamp.kicad_sch)
+(KiCad 10). Op-amp still to choose (OPA1656 symbol is a placeholder; all
+candidates share the standard dual SOIC-8 pinout).
+
+Schematic notes (additions / deviations from the text below):
+- R4 2M2 input pull-down on the jack side of C_in (no click on plug-in).
+- R8 100k on the jack side of C_out (holds it at 0 V when unplugged).
+- C_in is a 33 nF **C0G** ceramic in 0603, not film (SMD film starts ~1206).
+- Small R/C are 0603 with KiCad's hand-solder pads; electrolytics, jacks
+  and the trim pot have no footprint yet.
+- Line out drives the 3.5 mm tip (left channel) only; ring not connected.
+- Every pin is connected by a net label, not drawn wires: redraw as wanted.
 
 Purpose: turn a passive guitar pickup signal into a line-level signal for the
 Pmod I2S2 line input, without loading the pickups.
