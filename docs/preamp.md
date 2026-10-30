@@ -1,6 +1,26 @@
 # Guitar preamp / buffer
 
-Status: **requirements draft.** Design not started.
+Status: **schematic first draft** —
+[hardware/preamp/preamp.kicad_sch](../hardware/preamp/preamp.kicad_sch)
+(KiCad 10). Op-amp: **TI OPA1642AID** (dual JFET-input, SOIC-8). KiCad
+has no OPA1642 symbol, so U1 uses the OPA1656ID symbol with the value
+OPA1642AID: same standard dual SOIC-8 pinout.
+
+Schematic notes (additions / deviations from the text below):
+- R4 2M2 input pull-down on the jack side of C_in (no click on plug-in).
+- R8 100k on the jack side of C_out (holds it at 0 V when unplugged).
+- C_in is a 33 nF **C0G** ceramic in 0603, not film (SMD film starts ~1206).
+- Small R/C are 0603 with KiCad's hand-solder pads. Electrolytics are SMD
+  cans (C1 6.3x7.7, C3/C5/C6 4x5.4). C5/C6 carry audio, so they stay
+  electrolytic rather than class-2 ceramic (distortion, microphonics).
+- D1 is an SS14 (SMA), the SMD equivalent of the 1N5817.
+- RV1 is a Bourns 3296W multi-turn trimmer, adjusted from the top.
+- Prototype (no enclosure yet): all three jacks are PCB-mount.
+  J1 CUI PJ-102AH (pad 1 = centre = GND; pad 3 switch unused),
+  J2 Neutrik NMJ4HCD2 (switch contacts unused), J3 CUI SJ1-3523N.
+  Revisit for the enclosure (panel-mount jacks wired to pads).
+- Line out drives the 3.5 mm tip (left channel) only; ring not connected.
+- Every pin is connected by a net label, not drawn wires: redraw as wanted.
 
 Purpose: turn a passive guitar pickup signal into a line-level signal for the
 Pmod I2S2 line input, without loading the pickups.
@@ -137,14 +157,16 @@ Pedal standard: **9 V DC, 2.1 mm barrel, centre negative** (Boss). Bench
 supply for development.
 
     DC jack ──|>|── R_s 100 Ω ──┬────────────┬── V+ (op-amp, Vbias divider)
-            D1 1N5817           C_s 470 µF   100 nF ceramic at op-amp pin
+            D1 SS14             C_s 100 µF   100 nF ceramic at op-amp pin
                                 │            │
     GND ────────────────────────┴────────────┴──
 
 - D1 series Schottky: reverse-polarity block, ≈ 0.35 V drop. (Alternatives:
   shunt diode — harsh on supply; P-MOSFET — ≈ 0 V drop, more parts.)
-- R_s / C_s low-pass: 470 µF → f ≈ 3.4 Hz, 100 Hz ripple ≈ −29 dB.
-  (100 µF would give 16 Hz, only −16 dB.)
+- R_s / C_s low-pass: 100 µF → f ≈ 16 Hz, 100 Hz ripple ≈ −16 dB. Enough:
+  the op-amp's own supply rejection does most of the work, and Vbias has its
+  own filter (R2 ∥ R3 = 50 k with C3 10 µF → 0.3 Hz). 470 µF (3.4 Hz,
+  −29 dB) was dropped as physically too big for no audible gain.
 - 100 nF ceramic as close as possible to the op-amp supply pin (HF decoupling).
 - Caps rated ≥ 25 V (≥ 2× supply; survives an 18 V adaptor).
 - Supply at circuit ≈ 9 − 0.35 − (5 mA × 100 Ω) = **8.15 V** (check op-amp
@@ -212,6 +234,12 @@ ADI ADA4625. Fill in the table:
 
 Must run from ≈ 8 V single supply (after D1 + R_s). Dual package: one half
 gain stage, one half Vbias buffer.
+
+**Chosen: OPA1642AID.** JFET input (pA bias current, fine with the 1 MΩ
+bias resistor), 4.5–36 V supply, rail-to-rail output, ~5 nV/√Hz,
+~1.8 mA per amp. Unity-gain stable for the Vbias follower.
+Drop-in alternatives (same pinout, no other changes): OPA1652AID (FET,
+4.5–36 V), TLC2272CDR (CMOS, 16 V max, so not for an 18 V adaptor).
 
 ## Also needed: output side
 

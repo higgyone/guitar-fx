@@ -67,6 +67,14 @@ Rules that keep both PCs working:
   ghdl -r --std=08 --workdir=$work <dut>_tb
   ```
   Analyse dependencies first. Self-checking TBs end with `ALL TESTS PASSED`.
+- **KiCad checks**: `scripts/kicad_check.sh` runs ERC (and DRC with
+  schematic parity once a `.kicad_pcb` exists) on every project under
+  `hardware/`; any error or warning fails. CI runs it on push / PR
+  (`.github/workflows/kicad-checks.yml`, image `kicad/kicad:10.0.7`, same
+  version as the PCs: bump together). Local run from Git Bash:
+  `KICAD_CLI="/c/Program Files/KiCad/10.0/bin/kicad-cli.exe" scripts/kicad_check.sh`.
+  **Later: KiBot** for fab outputs (Gerbers, drill, BOM, PDFs) when a board
+  is ready to order.
 - **Gotchas (from ULA)**: time literals need a space (`10 ns`); no UTF-8 BOMs.
 
 ## Effect interface
@@ -85,4 +93,5 @@ model/        Python reference models, stimulus + golden vector generators
 constraints/  XDC (Digilent master XDC, pins uncommented as used)
 scripts/      create_project.tcl, GHDL run scripts
 docs/         spec, notes, Vivado-PC TODO
+hardware/     KiCad 10 projects (preamp/), one folder per board
 ```

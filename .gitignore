@@ -49,3 +49,12 @@ Thumbs.db
 
 # Vendor datasheets (copyrighted, kept local only)
 datasheets/
+
+# KiCad: local UI state, caches, backups, lock files
+*.kicad_prl
+fp-info-cache
+*-backups/
+_autosave-*
+~*.lck
+*.bak
+.history/
