@@ -27,6 +27,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A fresh install has no global library tables (the GUI makes them on
+      # first start), so ERC would warn "library not in the configuration"
+      # for every part. Install KiCad's default tables.
+      - name: Global library tables
+        run: |
+          cfg="$HOME/.config/kicad/10.0"
+          mkdir -p "$cfg"
+          cp /usr/share/kicad/template/sym-lib-table /usr/share/kicad/template/fp-lib-table "$cfg/"
+          ls /usr/share/kicad/symbols | head -3
+
       - name: ERC / DRC
         run: bash scripts/kicad_check.sh
 
