@@ -9,8 +9,15 @@ Schematic notes (additions / deviations from the text below):
 - R4 2M2 input pull-down on the jack side of C_in (no click on plug-in).
 - R8 100k on the jack side of C_out (holds it at 0 V when unplugged).
 - C_in is a 33 nF **C0G** ceramic in 0603, not film (SMD film starts ~1206).
-- Small R/C are 0603 with KiCad's hand-solder pads; electrolytics, jacks
-  and the trim pot have no footprint yet.
+- Small R/C are 0603 with KiCad's hand-solder pads. Electrolytics are SMD
+  cans (C1 6.3x7.7, C3/C5/C6 4x5.4). C5/C6 carry audio, so they stay
+  electrolytic rather than class-2 ceramic (distortion, microphonics).
+- D1 is an SS14 (SMA), the SMD equivalent of the 1N5817.
+- RV1 is a Bourns 3296W multi-turn trimmer, adjusted from the top.
+- Prototype (no enclosure yet): all three jacks are PCB-mount.
+  J1 CUI PJ-102AH (pad 1 = centre = GND; pad 3 switch unused),
+  J2 Neutrik NMJ4HCD2 (switch contacts unused), J3 CUI SJ1-3523N.
+  Revisit for the enclosure (panel-mount jacks wired to pads).
 - Line out drives the 3.5 mm tip (left channel) only; ring not connected.
 - Every pin is connected by a net label, not drawn wires: redraw as wanted.
 
@@ -149,7 +156,7 @@ Pedal standard: **9 V DC, 2.1 mm barrel, centre negative** (Boss). Bench
 supply for development.
 
     DC jack ──|>|── R_s 100 Ω ──┬────────────┬── V+ (op-amp, Vbias divider)
-            D1 1N5817           C_s 100 µF   100 nF ceramic at op-amp pin
+            D1 SS14             C_s 100 µF   100 nF ceramic at op-amp pin
                                 │            │
     GND ────────────────────────┴────────────┴──
 
