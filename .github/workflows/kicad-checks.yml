@@ -1,0 +1,38 @@
+# Runs KiCad ERC (and DRC once a board exists) on every project under
+# hardware/. The checks themselves are in scripts/kicad_check.sh, which can
+# also be run locally.
+name: KiCad checks
+
+on:
+  push:
+    paths:
+      - "hardware/**"
+      - "scripts/kicad_check.sh"
+      - ".github/workflows/kicad-checks.yml"
+  pull_request:
+    paths:
+      - "hardware/**"
+      - "scripts/kicad_check.sh"
+      - ".github/workflows/kicad-checks.yml"
+  workflow_dispatch:
+
+jobs:
+  erc-drc:
+    runs-on: ubuntu-latest
+    # Same KiCad version as the dev PCs; bump together.
+    container:
+      image: kicad/kicad:10.0.7
+      # The image's default user can't write the checkout directory.
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ERC / DRC
+        run: bash scripts/kicad_check.sh
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kicad-reports
+          path: build/kicad-reports/
