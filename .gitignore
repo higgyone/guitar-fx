@@ -10,6 +10,7 @@ build/
 .Xil/
 hd_visual/
 usage_statistics_ext_xsim.*
+dfx_runtime.txt
 webtalk*
 xsim.dir/
 *.wdb
