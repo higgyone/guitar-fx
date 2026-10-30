@@ -57,3 +57,4 @@ fp-info-cache
 _autosave-*
 ~*.lck
 *.bak
+.history/
