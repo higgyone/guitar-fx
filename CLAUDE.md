@@ -36,14 +36,21 @@ push when stopping.**
 
 | PC | Has | Used for |
 |----|-----|----------|
-| Claude PC | GHDL 6.0.0 (mcode), VSG, Python, VS Code + VHDL LS | writing VHDL, lint, GHDL simulation, Python DSP models |
+| Claude PC | GHDL 6.0.0 (mcode), VSG, Python, VS Code + VHDL LS, **Vivado 2025.2** (`C:\AMDDesignTools5.2\Vivadoin`, not on PATH) | writing VHDL, lint, GHDL simulation, Python DSP models; Vivado builds too |
 | Vivado PC | Vivado | synthesis, implementation, timing, bitstream, programming, xsim sign-off, ILA |
 
 Rules that keep both PCs working:
 
 - **The Vivado project is not tracked.** `scripts/create_project.tcl`
-  rebuilds it into `build/` (gitignored). Add a source file → add it to the
-  Tcl script in the same commit. (Unlike ULA, which tracks `ULA.xpr`.)
+  rebuilds it into `build/vivado/guitar-fx.xpr` (gitignored). It globs
+  `rtl/*.vhd` (synthesis + sim), `sim/*.vhd` (sim only) and
+  `constraints/*.xdc`, all as VHDL-2008 and added by reference. After adding
+  or removing a file, **re-run the script** (it rebuilds the project from
+  scratch, so lasting settings go in the script, not the GUI). Set the
+  synthesis / sim tops in the script once they exist. (Unlike ULA, which
+  tracks `ULA.xpr`.) Run from the repo root:
+  `vivado -mode batch -source scripts/create_project.tcl`, or `source` it
+  from the Vivado Tcl console after `cd`-ing to the repo.
 - **Sources live in plain folders** (`rtl/`, `sim/`, `constraints/`), not
   under Vivado's `*.srcs/` tree, so GHDL and Vivado read the same files.
 - **Portable VHDL-2008 only.** Testbenches must run in both GHDL and xsim.
