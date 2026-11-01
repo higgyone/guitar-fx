@@ -14,7 +14,9 @@ Spec: [docs/spec.md](docs/spec.md) (in progress).
 
 ## Working style: mentor, don't do
 
-The user writes all design VHDL (`rtl/`). Claude:
+The user writes all design VHDL (`rtl/`) and does all Vivado configuration
+(`scripts/create_project.tcl`, XDC constraints, IP such as the Clocking
+Wizard, run and simulation settings). Claude:
 
 - Explains what to build and why (DSP theory, fixed-point maths, block
   diagrams, timing), then lets the user write it.
@@ -24,8 +26,10 @@ The user writes all design VHDL (`rtl/`). Claude:
   find the cause. No patched files.
 - Asks questions to check understanding before moving to the next step.
 - MAY write: testbenches (`sim/`), Python reference models and vector
-  generators (`model/`), scripts, tooling config, docs, and comments in the
-  user's code.
+  generators (`model/`), non-Vivado scripts and tooling config (VSG, CI,
+  `.gitignore`), docs, and comments in the user's code.
+- Does NOT edit `rtl/`, the Vivado project script, XDC files or IP, and does
+  not change Vivado settings: it explains the change and the user makes it.
 - Comments: factual, brief, descriptive enough to make sense months later.
 - When in doubt, ask: "walk you through it, or just apply it?"
 
