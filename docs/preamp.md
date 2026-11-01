@@ -20,7 +20,16 @@ Schematic notes (additions / deviations from the text below):
   J2 Neutrik NMJ4HCD2 (switch contacts unused), J3 CUI SJ1-3523N.
   Revisit for the enclosure (panel-mount jacks wired to pads).
 - Line out drives the 3.5 mm tip (left channel) only; ring not connected.
-- Every pin is connected by a net label, not drawn wires: redraw as wanted.
+- **VBias ≈ 2.2 V, not mid-supply** (R2 220k / R3 82k). The OPA1642's input
+  works only up to V+ − 3.5 V (datasheet p7) ≈ 4.65 V at 8.15 V. At mid-supply
+  (4.08 V) that left just 0.58 V for guitar peaks above bias at the (+) input.
+  At 2.2 V: input room +2.4 V / −2.3 V, output swing ±2.2 V (ADC full scale
+  needs 1.875 V peak). See "Vbias".
+- **R5 = 2M2** (bias resistor). With the 2M2 pull-down R4 the guitar sees
+  R4 ∥ R5 = 1.1 MΩ (was 690 kΩ with 1 MΩ, below R1). C_in corner 2.2 Hz.
+- **R9 100 Ω** in series after the feedback tap, before C_out: isolates the
+  cable capacitance from the op-amp output and limits plug-in current.
+  Costs ≈ 0.1 dB into the Pmod's 10.2 kΩ.
 
 Purpose: turn a passive guitar pickup signal into a line-level signal for the
 Pmod I2S2 line input, without loading the pickups.
@@ -124,11 +133,29 @@ Cap values (target f ≈ 5 Hz, round **up** — bigger C = lower cutoff):
 
 | Part | Value | Cutoff | Notes |
 |------|-------|--------|-------|
-| C_in | 33 nF film | 4.8 Hz (1 MΩ) | non-polar |
+| C_in | 33 nF film | 4.8 Hz (1 MΩ); 2.2 Hz with the 2M2 used | non-polar |
 | C_g | 3.3 µF electrolytic | 4.8 Hz (10 kΩ) | + to Rg (4.5 V), − to GND |
 | C_out | 3.3 µF electrolytic | 4.7 Hz (10.2 kΩ Pmod) | + to op-amp out (4.5 V), − to Pmod (0 V) |
 
 ## Vbias
+
+As built (schematic R2 / R3 / C3, buffered by U1B):
+
+    VCC 8.15 V ── R2 220k ──┬── R3 82k ── GND
+                            ├── U1B follower → Vbias ≈ 2.2 V → R5 2M2
+                            C3 10 µF (+ to node) ── GND
+
+- **Why not mid-supply:** the OPA1642 (JFET input) only works with its
+  inputs between V− − 0.1 V and V+ − 3.5 V, i.e. 0 … 4.65 V here. The (+)
+  input carries the guitar signal on top of Vbias, so Vbias goes in the
+  middle of *that* range, not the middle of the supply. The output is
+  rail-to-rail and needs only ±1.875 V for ADC full scale, so it is not the
+  limit. Rule: centre the bias on whichever of input or output range is
+  smaller.
+- Vbias = 8.15 × 82 / 302 = 2.21 V. Input room +2.44 / −2.31 V.
+- Filter source resistance R2 ∥ R3 = 60 kΩ, × 10 µF → 0.27 Hz.
+
+The original mid-supply working, kept for the reasoning:
 
     +9 V ── R1 100k ──┬── R2 100k ── GND
                       ├── Vbias 4.5 V → 1 MΩ input bias resistor
@@ -165,18 +192,18 @@ supply for development.
   shunt diode — harsh on supply; P-MOSFET — ≈ 0 V drop, more parts.)
 - R_s / C_s low-pass: 100 µF → f ≈ 16 Hz, 100 Hz ripple ≈ −16 dB. Enough:
   the op-amp's own supply rejection does most of the work, and Vbias has its
-  own filter (R2 ∥ R3 = 50 k with C3 10 µF → 0.3 Hz). 470 µF (3.4 Hz,
+  own filter (R2 ∥ R3 = 60 k with C3 10 µF → 0.27 Hz). 470 µF (3.4 Hz,
   −29 dB) was dropped as physically too big for no audible gain.
 - 100 nF ceramic as close as possible to the op-amp supply pin (HF decoupling).
 - Caps rated ≥ 25 V (≥ 2× supply; survives an 18 V adaptor).
 - Supply at circuit ≈ 9 − 0.35 − (5 mA × 100 Ω) = **8.15 V** (check op-amp
-  quiescent current). Vbias = half = 4.075 V automatically (ratio divider).
-- Swing ≈ ±4 V around Vbias (less without RRO): covers 0.94 V target and the
-  3.2 V worst case at max gain.
+  quiescent current: OPA1642 2 × 1.8 mA typ). Vbias = 0.27 × VCC ≈ 2.2 V
+  (ratio divider, tracks the supply).
+- Output swing ≈ ±2.2 V around Vbias (RRO, limited by the bottom rail):
+  covers the 0.94 V target and the 1.875 V ADC full scale. Above that the
+  ADC clips anyway.
 - Ripple defence in depth: supply RC (−29 dB) → Vbias RC (−50 dB, the
   critical one) → op-amp PSRR (typ. 80–120 dB at 100 Hz).
-
-Still to do: op-amp choice.
 
 ## Mains hum (50 Hz UK)
 

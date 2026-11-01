@@ -2294,13 +2294,23 @@
 	)
 	(wire
 		(pts
-			(xy 149.86 83.82) (xy 165.1 83.82)
+			(xy 149.86 83.82) (xy 153.67 83.82)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
 		(uuid "03c6d547-e9cf-4e22-8538-512d84f8b438")
+	)
+	(wire
+		(pts
+			(xy 161.29 83.82) (xy 165.1 83.82)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "8ec791b0-31bf-47ab-9e1d-4e9aa71cf19f")
 	)
 	(wire
 		(pts
@@ -3242,6 +3252,87 @@
 	)
 	(symbol
 		(lib_id "Device:R")
+		(at 157.48 83.82 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "1008c4e4-d0a3-42a1-ad4b-8804343d6885")
+		(property "Reference" "R9"
+			(at 157.48 81.28 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "100"
+			(at 158.75 86.106 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+			(at 157.48 83.82 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 157.48 83.82 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Resistor"
+			(at 157.48 83.82 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "12707e22-49f8-4dd4-824d-45e07afdd797")
+		)
+		(pin "2"
+			(uuid "d75c93a8-3069-4306-87e7-63dab22f1d9e")
+		)
+		(instances
+			(project "preamp"
+				(path "/b570cdde-1936-5608-96c2-4a74dd01f7d2"
+					(reference "R9")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
 		(at 72.39 53.34 90)
 		(unit 1)
 		(body_style 1)
@@ -4138,7 +4229,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "1M"
+		(property "Value" "2M2"
 			(at 83.312 152.908 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5061,7 +5152,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "100k"
+		(property "Value" "82k"
 			(at 40.64 156.21 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5700,7 +5791,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "100k"
+		(property "Value" "220k"
 			(at 40.64 138.43 0)
 			(show_name no)
 			(do_not_autoplace no)
