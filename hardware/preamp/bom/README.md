@@ -39,3 +39,9 @@ Order from **Mouser**: one order covers the whole board and the Pmod I2S2
 RS doesn't show stock levels outside the basket for several lines (resistors,
 C7, C8): check them when uploading. C8 at RS is KEMET C0603C101J5GACTU
 ("last RS stock").
+
+## Extras (not on the PCB)
+
+- **PP3-002A** ×2 (Same Sky, 5.5 × 2.1 mm solder plug) for a bench-supply lead to
+  J1. Inner contact = 0 V (J1 is centre-negative), sleeve = +V. Not the
+  PP3-002B, which is 2.5 mm and a loose fit on J1. In the Mouser and DigiKey lists.

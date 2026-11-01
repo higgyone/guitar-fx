@@ -2,6 +2,7 @@ Manufacturer Part Number,Manufacturer,Quantity,Customer Reference
 410-379,Digilent,1,Pmod I2S2
 OPA1642AID,Texas Instruments,2,U1
 PJ-102AH,Same Sky,2,J1
+PP3-002A,Same Sky,2,Bench supply lead (not on PCB)
 NMJ4HCD2,Neutrik,2,J2
 SJ1-3523N,Same Sky,2,J3
 SS14-E3/61T,Vishay,2,D1
