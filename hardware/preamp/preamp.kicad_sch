@@ -4491,7 +4491,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Connector_BarrelJack:BarrelJack_CUI_PJ-102AH_Horizontal"
+		(property "Footprint" "preamp:BarrelJack_CUI_PJ-102AH_Horizontal"
 			(at 29.21 55.88 0)
 			(hide yes)
 			(show_name no)
@@ -4897,7 +4897,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Connector_Audio:Jack_6.35mm_Neutrik_NMJ4HCD2_Horizontal"
+		(property "Footprint" "preamp:Jack_6.35mm_Neutrik_NMJ4HCD2_Horizontal"
 			(at 27.94 81.28 0)
 			(hide yes)
 			(show_name no)

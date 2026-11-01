@@ -21,6 +21,11 @@ Schematic notes (additions / deviations from the text below):
   J1 CUI PJ-102AH (pad 1 = centre = GND; pad 3 switch unused),
   J2 Neutrik NMJ4HCD2 (switch contacts unused), J3 CUI SJ1-3523N.
   Revisit for the enclosure (panel-mount jacks wired to pads).
+- 3D models: KiCad 10 ships without the J1 / J2 STEP files, so the project
+  library `hardware/preamp/preamp.pretty` (table `fp-lib-table`) holds copies
+  of those two footprints pointing at `3d/` (`${KIPRJMOD}`). Sources: CUI
+  PJ-102AH (CUI's SolidWorks model, via github.com/KonevDN/Fork-Electronics-Library)
+  and Neutrik NMJ4HCD2 (Neutrik's download). Alignment checked by rendering.
 - Line out drives the 3.5 mm tip (left channel) only; ring not connected.
 - **VBias ≈ 2.55–2.6 V, not mid-supply** (R2 220k / R3 100k). The OPA1642's
   input works only up to V+ − 3.5 V (datasheet p7) ≈ 4.65 V at 8.15 V. At

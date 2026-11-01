@@ -4456,7 +4456,7 @@
 			)
 		)
 	)
-	(footprint "Connector_BarrelJack:BarrelJack_CUI_PJ-102AH_Horizontal"
+	(footprint "preamp:BarrelJack_CUI_PJ-102AH_Horizontal"
 		(layer "F.Cu")
 		(uuid "9560a6e2-b366-45d1-9105-0ee02c1730ac")
 		(at 114.3 73 -90)
@@ -4811,19 +4811,19 @@
 			(uuid "0c754e9b-9bcd-4ed7-9e1f-bc13f86e144e")
 		)
 		(embedded_fonts no)
-		(model "${KICAD10_3DMODEL_DIR}/Connector_BarrelJack.3dshapes/BarrelJack_CUI_PJ-102AH_Horizontal.step"
+		(model "${KIPRJMOD}/3d/CUI_PJ-102AH.step"
 			(offset
-				(xyz 0 0 0)
+				(xyz 0 -13.7 6.5)
 			)
 			(scale
 				(xyz 1 1 1)
 			)
 			(rotate
-				(xyz 0 0 0)
+				(xyz -90 0 90)
 			)
 		)
 	)
-	(footprint "Connector_Audio:Jack_6.35mm_Neutrik_NMJ4HCD2_Horizontal"
+	(footprint "preamp:Jack_6.35mm_Neutrik_NMJ4HCD2_Horizontal"
 		(layer "F.Cu")
 		(uuid "9d9d2296-9d23-499c-8e4f-0ac1c22c65da")
 		(at 120.3 105 180)
@@ -5226,15 +5226,15 @@
 			(uuid "d9c6d376-15a6-49b6-b817-d1f8d4adb05c")
 		)
 		(embedded_fonts no)
-		(model "${KICAD10_3DMODEL_DIR}/Connector_Audio.3dshapes/Jack_6.35mm_Neutrik_NMJ4HCD2_Horizontal.step"
+		(model "${KIPRJMOD}/3d/Neutrik_NMJ4HCD2.step"
 			(offset
-				(xyz 0 0 0)
+				(xyz -3.93 -8.15 0)
 			)
 			(scale
 				(xyz 1 1 1)
 			)
 			(rotate
-				(xyz 0 0 0)
+				(xyz -90 0 90)
 			)
 		)
 	)
@@ -6678,7 +6678,7 @@
 		(layer "Edge.Cuts")
 		(uuid "7651888a-2542-489b-bff4-e7193316954d")
 	)
-	(gr_text "VBias ~2.2 V @ U1.7"
+	(gr_text "VBias ~2.6 V @ U1.7"
 		(at 152 96 0)
 		(layer "F.SilkS")
 		(uuid "020734fa-f1c2-4d7a-9e0b-7c559c0263ed")
