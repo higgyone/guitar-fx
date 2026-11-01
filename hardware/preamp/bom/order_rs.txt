@@ -1,6 +1,6 @@
 RS Stock No	Quantity	Description
 184-0481	1	Digilent Pmod I2S2 (410-379)
-812-2518	5	U1 TI OPA1642AID (pack of 5; temporarily out of stock	 back-order)
+812-2518	5	U1 TI OPA1642AID (pack of 5; temporarily out of stock; back-order)
 259-6638	5	J3 Same Sky SJ1-3523N (pack of 5)
 739-0467	5	D1 onsemi SS14 (pack of 5)
 521-9805	2	RV1 Bourns 3296W-1-503LF
