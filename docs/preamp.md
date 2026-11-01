@@ -312,5 +312,9 @@ ordering.
   node (J2 tip → C4 → U1 pin 3 and R5). If that node picks up hum or supply
   noise, add a rule area on L1 that keeps the VCC pour away from it, or
   surround it with a GND guard track.
+- Mounting holes H1–H4 (M3, non-plated) are **isolated from the chassis**:
+  a ⌀9 mm rule area on all four copper layers keeps out pours, tracks and
+  vias (M3 washer DIN 125 is 7 mm OD, so 1 mm margin; also clears a nylon
+  standoff's hex). Don't rely on solder mask under a washer.
 - `preamp.kicad_dru`: J3's library footprint draws its own edge notch and its
   silkscreen crosses it; a DRC rule allows that for J3 only.
