@@ -13,7 +13,7 @@ spares (passives come in cut tape / packs, so 10 or the pack size).
 ## Recommendation
 
 Order from **Mouser**: one order covers the whole board and the Pmod I2S2
-(≈ £45 ex VAT; Mouser UK's page says free shipping on most orders over £65).
+(≈ £50 ex VAT with the op-amp; Mouser UK's page says free shipping on most orders over £65).
 
 ## Substitutions vs the schematic values
 
@@ -34,7 +34,7 @@ Order from **Mouser**: one order covers the whole board and the Pmod I2S2
 | C2 100n X7R 0603 | only a reel of 4000 | Mouser / DigiKey |
 | C4 10n C0G 0402 | not listed | Mouser / DigiKey |
 | C5 C6 3u3 25V 4×5.4 | not listed | Mouser / DigiKey |
-| U1 OPA1642AID | unavailable | DigiKey (in `order_digikey.csv`) |
+| U1 OPA1642AID | 812-2518 temporarily out of stock (back-order, in the list) | Mouser 595-OPA1642AID / DigiKey |
 
 RS doesn't show stock levels outside the basket for several lines (resistors,
 C7, C8): check them when uploading. C8 at RS is KEMET C0603C101J5GACTU
