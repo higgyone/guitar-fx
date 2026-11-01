@@ -19,6 +19,10 @@ architecture rtl of gain_stage is
     signal s_sample_gain : signed(41 downto 0) := (others => '0'); -- sample x gain result
     signal s_gain_slice  : signed(23 downto 0) := (others => '0'); -- 24 bit slice of the gain result
 
+    signal   s_overflow : std_logic           := '0'; -- overflow flag
+    constant c_byte_max : signed(23 downto 0) := (23 downto 20 => '1', others => '0');
+    constant c_byte_min : signed(23 downto 0) := (23 downto 20 => '0', others => '0');
+
 begin
 
     gain_proc : process (clk) is

@@ -12,6 +12,10 @@ GitHub: https://github.com/higgyone/guitar-fx
 
 Spec: [docs/spec.md](docs/spec.md) (in progress).
 
+**Start every session by reading [docs/progress.md](docs/progress.md)**: where
+the work stopped, the next step, and how the user learns best. Update it at
+the end of each session (it is how the two PCs share session memory).
+
 ## Working style: mentor, don't do
 
 The user writes all design VHDL (`rtl/`) and does all Vivado configuration
