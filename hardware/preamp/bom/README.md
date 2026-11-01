@@ -8,7 +8,7 @@ spares (passives come in cut tape / packs, so 10 or the pack size).
 | `bom.csv` | Master BOM: refs, values, chosen manufacturer part numbers |
 | `order_mouser.csv` | Mouser BOM import. **Covers everything, all in stock** |
 | `order_digikey.csv` | DigiKey BOM Manager (by manufacturer part number) |
-| `order_rs.csv` | RS "upload a parts list" (stock no, quantity in units). **Incomplete** |
+| `order_rs.txt` | RS "upload a parts list", tab-delimited (stock no, quantity in units, description). **Incomplete** |
 
 ## Recommendation
 
