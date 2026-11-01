@@ -38,6 +38,9 @@ architecture sim of gain_stage_tb is
     constant gain_1_00  : integer := 2 ** 15;
     constant gain_2_00  : integer := 2 ** 16;
     constant gain_m1_00 : integer := -(2 ** 15);
+    constant gain_m2_00 : integer := -(2 ** 16);
+    constant gain_3_50  : integer := 7 * 2 ** 14;
+    constant gain_max   : integer := 2 ** 17 - 1; -- just under 4.0
 
     -- Q1.23 limits (integer form)
     constant sample_max : integer := 2 ** 23 - 1;
@@ -153,7 +156,19 @@ begin
         check_sample("zero gain",        sample_max,  gain_0_00, 0);
         check_sample("invert",           1000,        gain_m1_00, -1000);
 
-        -- Group 2: saturation (enable with v2).
+        -- Group 2: saturation. Result outside Q1.23 must clamp to
+        -- sample_max / sample_min, never wrap. All products are exact
+        -- (no fractional bits dropped), so rounding does not affect them.
+        check_sample("sat max x2",        sample_max,     gain_2_00,  sample_max);
+        check_sample("sat min x2",        sample_min,     gain_2_00,  sample_min);
+        check_sample("sat edge +",        2 ** 22,        gain_2_00,  sample_max);  -- 0.5 x 2 = 1.0
+        check_sample("fit edge +",        2 ** 22 - 1,    gain_2_00,  2 ** 23 - 2);
+        check_sample("fit edge -",        -(2 ** 22),     gain_2_00,  sample_min);  -- -1.0 fits exactly
+        check_sample("sat invert min",    sample_min,     gain_m1_00, sample_max);  -- -1 x -1 = +1
+        check_sample("sat neg gain",      sample_max,     gain_m2_00, sample_min);
+        check_sample("sat sign trap",     sample_min,     gain_3_50,  sample_min);  -- bit 39 = 0 here
+        check_sample("sat max gain",      sample_max,     gain_max,   sample_max);
+
         -- Group 3: rounding (enable with v3).
 
         report "ALL TESTS PASSED"
