@@ -5,33 +5,23 @@ every session (either PC); update it at the end.**
 
 ## Current state (2026-11-01, end of session, laptop)
 
-### FPGA: `gain_stage` — v2 (saturation) in progress
+### FPGA: `gain_stage` — v2 (saturation) done; next v3 (rounding)
 
-- **v1 done** (merged in #8): registered Q4.38 product, truncating slice
-  `s_sample_gain(38 downto 15)` → Q1.23, one-clock `sample_out_valid`,
-  latency 1 clock. Testbench group 1 (12 exact cases) passes.
-- **Testbench group 2 (9 saturation cases) added** to
-  `sim/gain_stage_tb.vhd`. v1 fails its first case as expected:
-  `sat max x2: expected 8388607, got -2` (wraps instead of clamping).
-- **v2 work in progress** in `rtl/gain_stage.vhd` (committed as-is, so
-  group 2 still fails and GHDL warns `s_overflow` is never referenced).
-  The user has declared `s_overflow` and two constants. Still to do:
-  1. **Overflow check** (concurrent, outside the process): `s_overflow` is
-     `'0'` when product bits 41..38 are all `0` or all `1`, else `'1'`.
-     Compare the 4-bit slice `s_sample_gain(41 downto 38)` with `"0000"` and
-     `"1111"` (or `= 0` / `= -1`, or VHDL-2008 reduction `and` / `or`).
-  2. **Fix the constants**: the current ones are wrong
-     (`c_byte_max` = `1111 0000…` = −0.125, `c_byte_min` = 0). Should be
-     max `0111…1` = `(23 => '0', others => '1')`, min `1000…0`
-     = `(23 => '1', others => '0')`. Rename to `c_sample_max` /
-     `c_sample_min`.
-  3. **Output select** (conditional assignment replacing the plain slice):
-     slice when `s_overflow = '0'`; else `c_sample_max` when bit **41**
-     = `'0'` (bit 41 is the true sign; bit 39 is wrong for e.g.
-     −1.0 × 3.5); else `c_sample_min`.
-  4. Run the testbench: groups 1 and 2 must pass; latency stays 1.
-- **Then v3: rounding** (add half an output LSB, 2^14, before slicing;
-  saturate after rounding). Claude adds testbench group 3 first.
+- **v1** (#8): registered Q4.38 product, slice `s_sample_gain(38 downto 15)`
+  → Q1.23, one-clock `sample_out_valid`, latency 1 clock.
+- **v2** (#10): saturation. `s_overflow` = `'1'` unless product bits 41..38
+  are all `0` or all `1`; output clamps to `c_sample_max`
+  `(23 => '0', others => '1')` / `c_sample_min` `(23 => '1', others => '0')`,
+  direction from bit **41** (the true sign; bit 39 is wrong for e.g.
+  −1.0 × 3.5). All 21 tests pass (group 1: 12 exact, group 2: 9 saturation).
+  Claude added the comments (user asked).
+- **Next — v3: rounding.** Still truncating (rounds towards −∞). Open
+  question to the user: one output step is bit 15; what is half of it (power
+  of 2, which bit)? Answer: 2^14, bit 14. Then: add 2^14 to the product
+  before slicing, saturate after rounding (rounding can push +0.99999 over
+  the top). Claude adds testbench group 3 (rounding) **before** the user
+  writes v3. Think about where the add goes (before or after the product
+  register) and its effect on latency / timing.
 
 Run (repo root, PowerShell):
 
@@ -62,4 +52,4 @@ Pmod I2S2 to be bought. Guitar peak level not measured yet (scope, ×10 probe).
 - 2026-10-29: project setup, spec, fixed-point lesson, preamp design (#1–#5).
 - 2026-10-30: Vivado project script (#7).
 - 2026-11-01: VS Code set up (VHDL LS, VHDLwhiz, EditorConfig); gain_stage v1
-  + testbench (#8); saturation tests; v2 started.
+  + testbench (#8); saturation tests; v2 saturation done (#10).
