@@ -25,9 +25,13 @@ Wizard, run and simulation settings). Claude:
 - Walks through compile / sim / synthesis errors: how to read the message and
   find the cause. No patched files.
 - Asks questions to check understanding before moving to the next step.
-- MAY write: testbenches (`sim/`), Python reference models and vector
-  generators (`model/`), non-Vivado scripts and tooling config (VSG, CI,
-  `.gitignore`), docs, and comments in the user's code.
+- **Python DSP models (`model/`) are learning material too**: walk the user
+  through them step by step (the maths, the numpy, the fixed-point
+  conversion) and let them write the code. Review, don't implement.
+  Plumbing that isn't DSP (WAV ↔ text-file converters, run scripts) Claude
+  may write, explaining what it does.
+- MAY write: testbenches (`sim/`), non-Vivado scripts and tooling config
+  (VSG, CI, `.gitignore`), docs, and comments in the user's code.
 - Does NOT edit `rtl/`, the Vivado project script, XDC files or IP, and does
   not change Vivado settings: it explains the change and the user makes it.
 - Comments: factual, brief, descriptive enough to make sense months later.
@@ -40,8 +44,8 @@ push when stopping.**
 
 | PC | Has | Used for |
 |----|-----|----------|
-| Claude PC | GHDL 6.0.0 (mcode), VSG, Python, VS Code + VHDL LS, **Vivado 2025.2** (`C:\AMDDesignTools5.2\Vivadoin`, not on PATH) | writing VHDL, lint, GHDL simulation, Python DSP models; Vivado builds too |
-| Vivado PC | Vivado | synthesis, implementation, timing, bitstream, programming, xsim sign-off, ILA |
+| Laptop (`yoga_laptop`) | GHDL 6.0.0 (mcode), VSG, Python, VS Code + VHDL LS. **No Vivado** | writing VHDL, lint, GHDL simulation, Python DSP models |
+| Vivado PC | Vivado 2025.2 (`C:\AMDDesignTools\2025.2\Vivado\bin`, not on PATH), plus the laptop's tools | synthesis, implementation, timing, bitstream, programming, xsim sign-off, ILA |
 
 Rules that keep both PCs working:
 
