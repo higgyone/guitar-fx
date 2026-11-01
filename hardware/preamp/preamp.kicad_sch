@@ -6,11 +6,11 @@
 	(paper "A4")
 	(title_block
 		(title "Guitar preamp / buffer")
-		(date "2026-10-30")
-		(rev "0.1")
+		(date "2026-11-01")
+		(rev "0.2")
 		(company "guitar-fx")
 		(comment 1 "First draft generated from docs/preamp.md")
-		(comment 2 "Op-amp not chosen yet: OPA1656 symbol is a placeholder (std dual SOIC-8 pinout)")
+		(comment 2 "Op-amp: OPA1642AID on the OPA1656 symbol (same dual SOIC-8 pinout)")
 	)
 	(lib_symbols
 		(symbol "Amplifier_Operational:OPA1656ID"
@@ -2136,7 +2136,7 @@
 		)
 		(uuid "63c08044-0993-5ab7-a878-c60990cac5b7")
 	)
-	(text "INPUT + GAIN STAGE: \nG = 1 + (R6 + RV1)/R7 = 1.47 .. 6.47"
+	(text "INPUT + GAIN STAGE: \nG = 1 + (R6 + RV1)/R7 = 1 .. 6 (R6 = 0 R link)"
 		(exclude_from_sim no)
 		(at 99.06 72.644 0)
 		(effects
@@ -2191,7 +2191,7 @@
 		)
 		(uuid "ab40b0a9-514e-55d9-8b5c-fc8a5d858b84")
 	)
-	(text "VBIAS = VCC/2, filtered (0.32 Hz), buffered"
+	(text "VBIAS = 0.31 VCC (~2.6 V), 0.23 Hz, buffered"
 		(exclude_from_sim no)
 		(at 21.59 121.92 0)
 		(effects
@@ -2445,7 +2445,7 @@
 	)
 	(wire
 		(pts
-			(xy 74.93 81.28) (xy 93.98 81.28)
+			(xy 74.93 81.28) (xy 78.74 81.28)
 		)
 		(stroke
 			(width 0)
@@ -3071,7 +3071,7 @@
 		(dnp no)
 		(uuid "0f873148-1fda-5ff6-bc9d-f0a263891f7f")
 		(property "Reference" "C4"
-			(at 69.85 77.47 90)
+			(at 69.85 76.2 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -3081,8 +3081,8 @@
 				(justify left)
 			)
 		)
-		(property "Value" "33n C0G"
-			(at 75.184 85.344 90)
+		(property "Value" "10n C0G 50V"
+			(at 75.184 78.74 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -3092,7 +3092,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder"
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric_Pad0.74x0.62mm_HandSolder"
 			(at 71.12 81.28 0)
 			(hide yes)
 			(show_name no)
@@ -3243,7 +3243,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "4k7"
+		(property "Value" "0"
 			(at 132.08 101.346 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -4804,7 +4804,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "100n"
+		(property "Value" "100n X7R 50V"
 			(at 151.13 40.64 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5123,7 +5123,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "82k"
+		(property "Value" "100k"
 			(at 40.64 156.21 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6000,7 +6000,7 @@
 			)
 		)
 		(property "Value" "OPA1642AID"
-			(at 119.38 90.17 0)
+			(at 137.16 80.01 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -6231,6 +6231,417 @@
 				)
 			)
 		)
+	)
+	(symbol
+		(lib_id "Device:C")
+		(at 130.81 91.44 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "87bcd6b8-2281-477d-b403-38faf149c347")
+		(property "Reference" "C7"
+			(at 129.54 88.9 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "100p C0G"
+			(at 143.51 94.488 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric_Pad0.74x0.62mm_HandSolder"
+			(at 130.81 91.44 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 130.81 91.44 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 130.81 91.44 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "1f88745a-2858-4b69-a2bc-b3e79d776eb6")
+		)
+		(pin "2"
+			(uuid "d9d58658-2839-45a3-ad48-4042c275276c")
+		)
+		(instances
+			(project "preamp"
+				(path "/b570cdde-1936-5608-96c2-4a74dd01f7d2"
+					(reference "C7")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(wire
+		(pts
+			(xy 105.41 91.44) (xy 127 91.44)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "12ce0bee-b3e4-4f01-8be2-2a8841bcb0ff")
+	)
+	(wire
+		(pts
+			(xy 134.62 91.44) (xy 144.78 91.44)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "fc16a97f-1b48-4896-a51b-9a5321f37efd")
+	)
+	(junction
+		(at 105.41 91.44)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "9ad9b87f-4bbb-44ac-b68a-24960af5ef17")
+	)
+	(junction
+		(at 144.78 91.44)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "2e1fa896-eaa0-4887-90dd-ea5faac9a4d3")
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 82.55 81.28 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "ca9b4b11-4de4-41c3-a5ab-daa19d0e7cac")
+		(property "Reference" "R10"
+			(at 82.55 78.74 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "1k"
+			(at 83.82 83.566 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+			(at 82.55 81.28 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 82.55 81.28 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Resistor"
+			(at 82.55 81.28 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "ad2f9f9e-6558-4395-9fae-b3d2ab08e690")
+		)
+		(pin "2"
+			(uuid "3dcaa9e3-0598-4245-ab19-1b6a742bde09")
+		)
+		(instances
+			(project "preamp"
+				(path "/b570cdde-1936-5608-96c2-4a74dd01f7d2"
+					(reference "R10")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(wire
+		(pts
+			(xy 86.36 81.28) (xy 93.98 81.28)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "9bf7e44a-81c0-4f5f-9f10-f2094e3fee18")
+	)
+	(symbol
+		(lib_id "Device:C")
+		(at 60.96 87.63 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "20f4dfc4-a172-4aca-8547-daee6043048c")
+		(property "Reference" "C8"
+			(at 64.77 86.36 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "100p C0G"
+			(at 64.77 88.9 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder"
+			(at 60.96 87.63 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 60.96 87.63 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 60.96 87.63 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "7c0523ba-5228-4b78-b926-e098f523026b")
+		)
+		(pin "2"
+			(uuid "9aaa92d0-a94d-41ad-b4c3-69916ca9ef1e")
+		)
+		(instances
+			(project "preamp"
+				(path "/b570cdde-1936-5608-96c2-4a74dd01f7d2"
+					(reference "C8")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 60.96 93.98 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "dbd161c3-5d3e-4f4e-9c10-8ecacb4585b0")
+		(property "Reference" "#PWR19"
+			(at 64.77 92.71 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "GND"
+			(at 60.96 99.06 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 60.96 93.98 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 60.96 93.98 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 50.8 93.98 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "94b1418d-9066-4a21-9fe8-b9631572e817")
+		)
+		(instances
+			(project "preamp"
+				(path "/b570cdde-1936-5608-96c2-4a74dd01f7d2"
+					(reference "#PWR19")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(wire
+		(pts
+			(xy 60.96 81.28) (xy 60.96 83.82)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "118b7304-7247-4224-94ed-7f47634f8947")
+	)
+	(wire
+		(pts
+			(xy 60.96 91.44) (xy 60.96 93.98)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "2be80fb1-2a0a-48cd-a70e-7dba536eefeb")
+	)
+	(junction
+		(at 60.96 81.28)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "b4b1162c-a8e5-4b34-bafa-aaa51c7bbc6d")
+	)
+	(text "C8, R10: RF filter + ESD current limit for U1 pin 3"
+		(exclude_from_sim no)
+		(at 25.654 106.172 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "acfdfae4-ddd2-494a-876b-31f6c66bdc5d")
+	)
+	(text "C7: HF roll-off, keeps U1A stable at high gain"
+		(exclude_from_sim no)
+		(at 115.316 110.744 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "054d3d7c-2d2f-4a6a-b60b-3f764867691d")
 	)
 	(sheet_instances
 		(path "/"

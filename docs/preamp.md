@@ -9,7 +9,9 @@ OPA1642AID: same standard dual SOIC-8 pinout.
 Schematic notes (additions / deviations from the text below):
 - R4 2M2 input pull-down on the jack side of C_in (no click on plug-in).
 - R8 100k on the jack side of C_out (holds it at 0 V when unplugged).
-- C_in is a 33 nF **C0G** ceramic in 0603, not film (SMD film starts ~1206).
+- C_in (C4) is a 10 nF **C0G** ceramic in 0402, not film (SMD film starts
+  ~1206). 33 nF C0G is hard to get in 0603 and not made in 0402; with the
+  2M2 bias resistor 10 nF still gives 7.2 Hz (−0.03 dB at 82 Hz).
 - Small R/C are 0603 with KiCad's hand-solder pads. Electrolytics are SMD
   cans (C1 6.3x7.7, C3/C5/C6 4x5.4). C5/C6 carry audio, so they stay
   electrolytic rather than class-2 ceramic (distortion, microphonics).
@@ -20,13 +22,27 @@ Schematic notes (additions / deviations from the text below):
   J2 Neutrik NMJ4HCD2 (switch contacts unused), J3 CUI SJ1-3523N.
   Revisit for the enclosure (panel-mount jacks wired to pads).
 - Line out drives the 3.5 mm tip (left channel) only; ring not connected.
-- **VBias ≈ 2.2 V, not mid-supply** (R2 220k / R3 82k). The OPA1642's input
-  works only up to V+ − 3.5 V (datasheet p7) ≈ 4.65 V at 8.15 V. At mid-supply
-  (4.08 V) that left just 0.58 V for guitar peaks above bias at the (+) input.
-  At 2.2 V: input room +2.4 V / −2.3 V, output swing ±2.2 V (ADC full scale
-  needs 1.875 V peak). See "Vbias".
+- **VBias ≈ 2.55–2.6 V, not mid-supply** (R2 220k / R3 100k). The OPA1642's
+  input works only up to V+ − 3.5 V (datasheet p7) ≈ 4.65 V at 8.15 V. At
+  mid-supply (4.08 V) that left just 0.58 V for guitar peaks above bias at the
+  (+) input. See "Vbias" for why 2.6 V rather than the first draft's 2.2 V.
 - **R5 = 2M2** (bias resistor). With the 2M2 pull-down R4 the guitar sees
-  R4 ∥ R5 = 1.1 MΩ (was 690 kΩ with 1 MΩ, below R1). C_in corner 2.2 Hz.
+  R4 ∥ R5 = 1.1 MΩ (was 690 kΩ with 1 MΩ, below R1). C_in corner 7.2 Hz.
+- **Review fixes (2026-11-01, independent design review):**
+  - **R6 = 0 Ω link** → G = 1 … 6 (was 1.47 … 6.47), so a hot pickup (up to
+    the ADC's 1.875 V peak) can be run at unity without clipping. Fit a
+    resistor in R6 to raise the minimum gain if the pot is too coarse.
+  - **C7 100 pF C0G across R6 + RV1** (U1 pin 2 to pin 1): the input
+    capacitance (~6 pF + pads) with Rf ∥ Rg (up to 8.5 kΩ) put a pole at
+    ~1.8 MHz, right at the loop crossover at G = 6 (11 MHz / 6). C7 rolls the
+    gain back to 1 above ~32 kHz (at max Rf), so the loop stays stable.
+  - **R10 1k in series with U1 pin 3** (C4 → R10 → pin 3, R5 on the op-amp
+    side) and **C8 100 pF C0G from the jack tip to GND**: RF filter (AM pickup
+    by the JFET input) and current limit for ESD / overdrive into the input
+    clamp diodes (datasheet: limit to 10 mA). 100 pF adds little to the
+    cable's 300–1000 pF, so the pickup's resonance barely moves. R10 noise
+    (4 nV/√Hz) is below the op-amp's.
+  - Voltage ratings now on the schematic: C2 100n X7R 50 V, C4 C0G 50 V.
 - **R9 100 Ω** in series after the feedback tap, before C_out: isolates the
   cable capacitance from the op-amp output and limits plug-in current.
   Costs ≈ 0.1 dB into the Pmod's 10.2 kΩ.
@@ -133,7 +149,7 @@ Cap values (target f ≈ 5 Hz, round **up** — bigger C = lower cutoff):
 
 | Part | Value | Cutoff | Notes |
 |------|-------|--------|-------|
-| C_in | 33 nF film | 4.8 Hz (1 MΩ); 2.2 Hz with the 2M2 used | non-polar |
+| C_in | 10 nF C0G (0402) | 7.2 Hz with the 2M2 used (first draft: 33 nF, 2.2 Hz) | non-polar |
 | C_g | 3.3 µF electrolytic | 4.8 Hz (10 kΩ) | + to Rg (4.5 V), − to GND |
 | C_out | 3.3 µF electrolytic | 4.7 Hz (10.2 kΩ Pmod) | + to op-amp out (4.5 V), − to Pmod (0 V) |
 
@@ -141,19 +157,23 @@ Cap values (target f ≈ 5 Hz, round **up** — bigger C = lower cutoff):
 
 As built (schematic R2 / R3 / C3, buffered by U1B):
 
-    VCC 8.15 V ── R2 220k ──┬── R3 82k ── GND
-                            ├── U1B follower → Vbias ≈ 2.2 V → R5 2M2
+    VCC 8.15 V ── R2 220k ──┬── R3 100k ── GND
+                            ├── U1B follower → Vbias ≈ 2.55 V → R5 2M2
                             C3 10 µF (+ to node) ── GND
 
 - **Why not mid-supply:** the OPA1642 (JFET input) only works with its
   inputs between V− − 0.1 V and V+ − 3.5 V, i.e. 0 … 4.65 V here. The (+)
   input carries the guitar signal on top of Vbias, so Vbias goes in the
-  middle of *that* range, not the middle of the supply. The output is
-  rail-to-rail and needs only ±1.875 V for ADC full scale, so it is not the
-  limit. Rule: centre the bias on whichever of input or output range is
-  smaller.
-- Vbias = 8.15 × 82 / 302 = 2.21 V. Input room +2.44 / −2.31 V.
-- Filter source resistance R2 ∥ R3 = 60 kΩ, × 10 µF → 0.27 Hz.
+  lower part of *that* range, not the middle of the supply.
+- **Why 2.55 V and not 2.2 V (centre of the input range):** with gain > 1 the
+  output carries G × the input, so the output's downward swing (to ≈ 0.2 V
+  above GND into 10 k) is the real limit, not the input. At 2.2 V that left
+  only ≈ 0.2 V beyond ADC full scale. Raising Vbias trades input room above
+  bias (which only matters at G ≈ 1) for output room below it.
+- Vbias = 8.15 × 100 / 320 = 2.55 V (2.63 V at the more likely 8.4 V).
+  Input room +2.10 / −2.65 V; output swing ≈ −2.35 V / +5.4 V. The ADC
+  (1.875 V peak) now clips before the op-amp does at every gain setting.
+- Filter source resistance R2 ∥ R3 = 69 kΩ, × 10 µF → 0.23 Hz.
 
 The original mid-supply working, kept for the reasoning:
 
@@ -192,16 +212,16 @@ supply for development.
   shunt diode — harsh on supply; P-MOSFET — ≈ 0 V drop, more parts.)
 - R_s / C_s low-pass: 100 µF → f ≈ 16 Hz, 100 Hz ripple ≈ −16 dB. Enough:
   the op-amp's own supply rejection does most of the work, and Vbias has its
-  own filter (R2 ∥ R3 = 60 k with C3 10 µF → 0.27 Hz). 470 µF (3.4 Hz,
+  own filter (R2 ∥ R3 = 69 k with C3 10 µF → 0.23 Hz). 470 µF (3.4 Hz,
   −29 dB) was dropped as physically too big for no audible gain.
 - 100 nF ceramic as close as possible to the op-amp supply pin (HF decoupling).
 - Caps rated ≥ 25 V (≥ 2× supply; survives an 18 V adaptor).
 - Supply at circuit ≈ 9 − 0.35 − (5 mA × 100 Ω) = **8.15 V** (check op-amp
-  quiescent current: OPA1642 2 × 1.8 mA typ). Vbias = 0.27 × VCC ≈ 2.2 V
-  (ratio divider, tracks the supply).
-- Output swing ≈ ±2.2 V around Vbias (RRO, limited by the bottom rail):
-  covers the 0.94 V target and the 1.875 V ADC full scale. Above that the
-  ADC clips anyway.
+  quiescent current: OPA1642 2 × 1.8 mA typ). The review estimates
+  **≈ 8.4 V**: the SS14 drops ≈ 0.25 V at 4 mA, not 0.35 V. Vbias =
+  0.3125 × VCC ≈ 2.55–2.6 V (ratio divider, tracks the supply).
+- Output swing ≈ −2.35 V below Vbias (RRO, limited by the bottom rail):
+  covers the 0.94 V target and the 1.875 V ADC full scale with ≈ 0.5 V spare.
 - Ripple defence in depth: supply RC (−29 dB) → Vbias RC (−50 dB, the
   critical one) → op-amp PSRR (typ. 80–120 dB at 100 Hz).
 
@@ -226,7 +246,9 @@ power. Residual hum → handled digitally (noise gate; optional IIR notch at
 - Gain needed = 0.94 / guitar peak → ≈ 1.9 (0.5 V) … 3.1 (0.3 V) … 4.7 (0.2 V).
 - Design: adjustable **G ≈ 1.5 … 5**, non-inverting, `G = 1 + Rf/Rg`,
   Rf = fixed + trim pot.
-- **Chosen: Rg = 10 kΩ, Rf = 4.7 kΩ + 50 kΩ trim pot → G = 1.47 … 6.47.**
+- **Chosen: Rg = 10 kΩ, Rf = R6 (0 Ω link) + 50 kΩ trim pot → G = 1 … 6.**
+  (First draft had R6 4.7 kΩ, G = 1.47 … 6.47: a 1.3 V-peak pickup clipped
+  even at minimum gain.) C7 100 pF across Rf limits the bandwidth (stability).
   Top of range can overdrive the ADC with hot pickups (clips, no damage:
   Pmod R7 5.1 kΩ limits current). Set the pot on the bench with the scope.
 - P7 Op-amp choice — see below.
@@ -309,9 +331,15 @@ ordering.
 - Fanout: every SMD GND / VCC pad has a 0.4 mm track to a 0.6 / 0.3 mm via
   (U1 pin 8 shares C2's VCC via). THT GND pads connect to every GND layer.
 - The L1 VCC pour carries DC only, but it is copper next to the 1.1 MΩ input
-  node (J2 tip → C4 → U1 pin 3 and R5). If that node picks up hum or supply
-  noise, add a rule area on L1 that keeps the VCC pour away from it, or
-  surround it with a GND guard track.
+  node (J2 tip → C4 → R10 → U1 pin 3 and R5). If that node picks up hum or
+  supply noise, add a rule area on L1 that keeps the VCC pour away from it, or
+  surround it with a GND guard track. The review also notes every L1 GND pad
+  sits inside VCC copper (more chance of a VCC–GND solder bridge on a
+  hand-soldered 0603); a GND pour on L1 would avoid both.
+- Review fixes placed (2026-11-01): C8 beside J2's tip pad (GND via below
+  it), C4 now 0402 in the same spot, R10 next to U1 pin 3 (R5 moved 1.5 mm
+  right for it), C7 beside U1 pins 1–2. Keep the C4 → R10 → pin 3 track away
+  from the pin 1 / R6 output track.
 - Mounting holes H1–H4 (M3, non-plated) are **isolated from the chassis**:
   a ⌀9 mm rule area on all four copper layers keeps out pours, tracks and
   vias (M3 washer DIN 125 is 7 mm OD, so 1 mm margin; also clears a nylon
