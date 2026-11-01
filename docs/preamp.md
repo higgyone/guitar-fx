@@ -268,7 +268,49 @@ bias resistor), 4.5–36 V supply, rail-to-rail output, ~5 nV/√Hz,
 Drop-in alternatives (same pinout, no other changes): OPA1652AID (FET,
 4.5–36 V), TLC2272CDR (CMOS, 16 V max, so not for an 18 V adaptor).
 
-## Also needed: output side
+## Output side (Pmod line out → amp)
 
-The I2S2 line out is line level. A guitar amp input expects instrument level.
-Plan an attenuator (or use the amp FX return) before playing live.
+Decided 2026-11-01: **no attenuator for the prototype.** The Pmod line out
+(≈ 1.07 V peak full scale, 470 Ω source) is already close to guitar level:
+with the preamp trimmed to −6 dBFS the amp sees ≈ 0.5 V peak, about +3 dB over
+the bare guitar. The amp has no FX loop, so it goes into the front input.
+- Adapter lead: 3.5 mm tip + sleeve → 6.35 mm TS, ring **not** connected
+  (a TRS→TS adapter shorts the right DAC output to ground, below its 3 kΩ
+  minimum load). FPGA sends zeros on the right channel.
+- Match the bypass level digitally (output volume block, effect #1).
+- Hum on the bench is most likely a ground loop (Arty on an earthed PC's USB
+  + earthed amp): try the laptop on battery first.
+- For an enclosure later: a switchable 0 / −10 / −20 dB L-pad after the Pmod
+  (R_s 6.8k / R_p 3.3k, or 9.1k / 1k; keep R_s + R_p ≥ 4.3 kΩ).
+
+## PCB (first draft, 2026-11-01)
+
+[hardware/preamp/preamp.kicad_pcb](../hardware/preamp/preamp.kicad_pcb):
+72 × 54 mm, 4 layers, M3 holes in the corners. Parts placed, power fanned out
+to the planes, signal nets **not routed yet** (DRC lists them as unconnected).
+
+| Layer | Use |
+|-------|-----|
+| L1 F.Cu | All parts, signal tracks, spare area poured **VCC** |
+| L2 In1.Cu "GND" | Solid GND plane |
+| L3 In2.Cu "PWR" | Solid VCC plane |
+| L4 B.Cu | Spare signal layer, spare area poured GND |
+
+Stackup (1.6 mm): 1 oz outer, 0.1 mm prepreg L1–L2, 1.24 mm core, 0.1 mm
+prepreg L3–L4. Set the real figures from the fab's 4-layer stackup when
+ordering.
+
+- Why this order: every L1 track sits 0.1 mm over unbroken GND, so its
+  return current runs directly underneath (smallest loop, least hum pickup)
+  and L2 shields L1 from the VCC plane. Don't route on L2 or cut it.
+- The L2–L3 core is thick, so plane-to-plane capacitance is small; C2
+  (100 nF at U1 pin 8) and C1 still do the decoupling.
+- L4 tracks reference the L3 VCC plane: keep L4 for short, non-critical runs.
+- Fanout: every SMD GND / VCC pad has a 0.4 mm track to a 0.6 / 0.3 mm via
+  (U1 pin 8 shares C2's VCC via). THT GND pads connect to every GND layer.
+- The L1 VCC pour carries DC only, but it is copper next to the 1.1 MΩ input
+  node (J2 tip → C4 → U1 pin 3 and R5). If that node picks up hum or supply
+  noise, add a rule area on L1 that keeps the VCC pour away from it, or
+  surround it with a GND guard track.
+- `preamp.kicad_dru`: J3's library footprint draws its own edge notch and its
+  silkscreen crosses it; a DRC rule allows that for J3 only.
