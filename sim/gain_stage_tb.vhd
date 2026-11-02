@@ -8,15 +8,16 @@
 -- Number formats (see docs/learning/01_fixed_point.md):
 --   sample_in / sample_out : Q1.23, integer k = value * 2**23
 --   gain                   : Q3.15, integer k = value * 2**15
---   expected               = sample * gain / 2**15
+--   expected               = round(sample * gain / 2**15), then saturated
+--   round                  = round half up: floor(value + 0.5)
 --
 -- Test groups:
 --   1. Exact results: no rounding, no overflow. Pass with v1 (truncate).
---   2. Saturation (added with v2).
---   3. Rounding (added with v3).
+--   2. Saturation (v2). Exact products, so rounding does not affect them.
+--   3. Rounding (v3). Products with a fraction; truncation fails these.
 --
 -- Run (repo root, PowerShell):
---   ghdl -a --std=08 -Wall --workdir=$env:TEMP rtl/gain.vhd sim/gain_stage_tb.vhd
+--   ghdl -a --std=08 -Wall --workdir=$env:TEMP rtl/gain_stage.vhd sim/gain_stage_tb.vhd
 --   ghdl -r --std=08 --workdir=$env:TEMP gain_stage_tb
 
 library ieee;
@@ -33,6 +34,7 @@ architecture sim of gain_stage_tb is
 
     -- Q3.15 gain constants (integer form)
     constant gain_0_00  : integer := 0;
+    constant gain_0_25  : integer := 2 ** 13;
     constant gain_0_50  : integer := 2 ** 14;
     constant gain_0_75  : integer := 3 * 2 ** 13;
     constant gain_1_00  : integer := 2 ** 15;
@@ -41,6 +43,7 @@ architecture sim of gain_stage_tb is
     constant gain_m2_00 : integer := -(2 ** 16);
     constant gain_3_50  : integer := 7 * 2 ** 14;
     constant gain_max   : integer := 2 ** 17 - 1; -- just under 4.0
+    constant gain_2_lo  : integer := 2 ** 16 - 1; -- just under 2.0
 
     -- Q1.23 limits (integer form)
     constant sample_max : integer := 2 ** 23 - 1;
@@ -169,7 +172,19 @@ begin
         check_sample("sat sign trap",     sample_min,     gain_3_50,  sample_min);  -- bit 39 = 0 here
         check_sample("sat max gain",      sample_max,     gain_max,   sample_max);
 
-        -- Group 3: rounding (enable with v3).
+        -- Group 3: rounding. Results are given in output LSBs (k); the
+        -- comment shows the exact value. Truncation (v1/v2) rounds every
+        -- one of these down, so most fail until v3.
+        check_sample("round +0.5 up",     1001,           gain_0_50,  501);         -- 500.5
+        check_sample("round -0.5 up",     -1001,          gain_0_50,  -500);        -- -500.5
+        check_sample("round +0.75",       3,              gain_0_25,  1);           -- 0.75
+        check_sample("round +0.25",       1,              gain_0_25,  0);           -- 0.25
+        check_sample("round -0.25",       -1,             gain_0_25,  0);           -- -0.25
+        check_sample("round -0.75",       -3,             gain_0_25,  -1);          -- -0.75
+        check_sample("round tiny -",      -1,             gain_0_50,  0);           -- -0.5
+        -- Rounding pushes a just-in-range value over the top: must saturate,
+        -- not wrap. Catches an overflow check done on the unrounded product.
+        check_sample("round to top",      2 ** 22 + 64,   gain_2_lo,  sample_max);  -- 2^23 - 0.002
 
         report "ALL TESTS PASSED"
             severity note;
