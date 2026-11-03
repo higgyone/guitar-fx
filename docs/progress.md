@@ -3,56 +3,52 @@
 Where the project stands and what comes next. **Read this at the start of
 every session (either PC); update it at the end.**
 
-## Current state (2026-11-02, end of session, laptop)
+## Current state (2026-11-03, end of session, laptop)
 
-### FPGA: `gain_stage` — complete (v3, #11)
+### FPGA: `gain_stage` — complete (#11)
 
 Registered Q4.38 product, round to nearest (`c_round` = bit 14 added after
 the register), saturate (bits 41..38 mixed → clamp, direction from bit 41),
 slice `(38 downto 15)` → Q1.23. Latency 1 clock. All 29 tests pass.
+`s_rounded` now has an initial value (silences a 0 ms metavalue warning).
 
-### FPGA: `soft_start` — in progress (entity written)
+### FPGA: `soft_start` — complete (#13)
 
-**Why:** hides the power-up thump (preamp Vbias settles over ≈ 2.5 s) and
-the click of audio switching on: mute for 3 s, then ramp the gain 0 → 1.0.
+Hides the power-up thump: mute 3 s, then ramp the gain 0 → 1.0 over
+2,048 samples (42.7 ms, step 16), then run at 1.0.
 
-**Decided:**
-- **Option B:** `soft_start` has the standard effect interface and
-  **contains a `gain_stage` instance**; internal ramp logic drives its
-  `gain` port. First hierarchical design.
-- Mute 3 s = **144,000 samples** (counter needs **18 bits**: 2^17 − 1 =
-  131,071 is too small).
-- Ramp **2,048 samples = 2^11** (42.7 ms), step **16** per sample:
-  32,768 / 2,048 = 16 exactly (2,400 samples would give 13.65, not whole).
-  Ramp gain = counter × 2^(15 − g_ramp_bits) (a left shift).
-- Generics so the testbench can use tiny values (e.g. mute 10, ramp bits 3):
-  `g_mute_length` (default 144000; suggested rename `g_mute_samples`) and
-  `g_ramp_bits` (default 11).
+- Standard effect interface; **contains a `gain_stage` instance**
+  (`gain_stage0`) whose `gain` is driven by `s_gain` — first hierarchical
+  design.
+- State machine `t_state` (st_mute, st_ramp, st_run) in a clocked process,
+  stepping only on `sample_in_valid`; counter `natural range 0 to
+  g_mute_samples - 1`, count-to-limit pattern (limit − 1, then reset to 0).
+- Ramp gain `to_signed(s_counter * 2 ** (15 - g_ramp_bits), 18)`; jumps to
+  1.0 at the last ramp sample. Generics `g_mute_samples` (144000),
+  `g_ramp_bits` (11).
+- `sim/soft_start_tb.vhd` (mute 6, ramp bits 2) checks mute = 0, ramp
+  monotonic/bounded/long enough, run = input, reset → mute again. Passes.
+- Known, harmless quirks: output lags the gain by one sample (s_gain and
+  the product register update on the same edge) so the ramp starts with two
+  zeros; the last ramp step is 2 steps (jump to 1.0).
+- Lessons on the way: state changes must sit inside the count-to-limit
+  `if`; reset must be the outer `if` (last assignment wins); `signed *
+  integer` doubles the width (use integer maths then `to_signed`, or
+  `shift_left`).
 
-**State table (agreed):**
+**Next — the user picks one:**
+1. Hear it: user writes a Python model of the gain stage (guided); Claude
+   writes WAV ↔ text plumbing; a testbench streams real audio through the
+   VHDL and the output is listened to.
+2. Effect 2: hard/soft clip distortion (non-linear functions, lookup tables).
+3. Top level / I2S interface groundwork (Pmod I2S2 not bought yet).
 
-| State | Gain to gain_stage | Counter | Move on |
-|-------|--------------------|---------|---------|
-| MUTE | 0 | +1 per `sample_in_valid` | at `g_mute_samples - 1` → RAMP, counter to 0 |
-| RAMP | counter × 2^(15 − g_ramp_bits) | +1 per `sample_in_valid` | at `2 ** g_ramp_bits - 1` → RUN |
-| RUN | 32,768 (1.0 in Q3.15) | stops | never (until reset) |
+Run (repo root, PowerShell), e.g.:
 
-**Entity written** (`rtl/soft_start_stage.vhd`, entity `soft_start`,
-compiles clean). To tidy: rename the file to `rtl/soft_start.vhd`; replace
-the template comment on the generics with what they mean; optional rename
-`g_mute_length` → `g_mute_samples`.
+    ghdl -a --std=08 -Wall --workdir=$env:TEMP rtl/gain_stage.vhd rtl/soft_start.vhd sim/soft_start_tb.vhd
+    ghdl -r --std=08 --workdir=$env:TEMP soft_start_tb
 
-**Next step (user):** write the architecture's **state machine and counter
-only** — `type t_state is (st_mute, st_ramp, st_run)`, `case` in a clocked
-process, counter as `natural range 0 to g_mute_samples - 1`, both stepping
-on `sample_in_valid`. Shown a traffic-light example of enum + case. Then:
-gain value from state/counter, then the `gain_stage` instance. Claude writes
-`sim/soft_start_tb.vhd` (small generics) when the architecture is ready.
-
-Run (repo root, PowerShell):
-
-    ghdl -a --std=08 -Wall --workdir=$env:TEMP rtl/gain_stage.vhd sim/gain_stage_tb.vhd
-    ghdl -r --std=08 --workdir=$env:TEMP gain_stage_tb
+On the Vivado PC: re-run `scripts/create_project.tcl` after pulling (new files).
 
 ### Preamp (docs/preamp.md)
 
@@ -82,3 +78,4 @@ Pmod I2S2 to be bought. Guitar peak level not measured yet (scope, ×10 probe).
   + testbench (#8); saturation tests; v2 saturation done (#10).
 - 2026-11-02: gain_stage v3 rounding (#11); gain stage complete.
   soft_start designed (states, numbers, option B); entity written.
+- 2026-11-03: soft_start complete (state machine, ramp, gain_stage instance) + testbench (#13).

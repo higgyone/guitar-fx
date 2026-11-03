@@ -30,8 +30,8 @@ architecture rtl of gain_stage is
     signal s_sample_gain : signed(41 downto 0) := (others => '0'); -- registered product, Q4.38
     signal s_gain_slice  : signed(23 downto 0) := (others => '0'); -- product as Q1.23, saturated
 
-    signal s_rounded  : signed(41 downto 0); -- product + 2^14 (rounded), Q4.38
-    signal s_overflow : std_logic := '0';    -- '1': rounded product doesn't fit Q1.23
+    signal s_rounded  : signed(41 downto 0) := (others => '0'); -- product + 2^14 (rounded), Q4.38
+    signal s_overflow : std_logic           := '0';             -- '1': rounded product doesn't fit Q1.23
 
     constant c_sample_max : signed(23 downto 0) := (23 => '0', others => '1'); -- Q1.23 max, 0x7FFFFF = +0.99999988
     constant c_sample_min : signed(23 downto 0) := (23 => '1', others => '0'); -- Q1.23 min, 0x800000 = -1.0
