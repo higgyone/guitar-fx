@@ -3,7 +3,7 @@
 Where the project stands and what comes next. **Read this at the start of
 every session (either PC); update it at the end.**
 
-## Current state (2026-11-03, end of session, laptop)
+## Current state (2026-11-04, end of session, laptop)
 
 ### FPGA: `gain_stage` — complete (#11)
 
@@ -36,12 +36,28 @@ Hides the power-up thump: mute 3 s, then ramp the gain 0 → 1.0 over
   integer` doubles the width (use integer maths then `to_signed`, or
   `shift_left`).
 
+### Python: hear-it pipeline — working (#14)
+
+- Project venv `.venv` (gitignored); packages in `model/requirements.txt`
+  (numpy, scipy, matplotlib, ruff). Other PC: create the venv once (commands
+  in that file's header).
+- `model/gain_stage_model.py` (user-written): `gain_stage` (one sample,
+  bit-exact) and `gain_stage_array` (numpy, `np.clip`); agree on 10,000
+  random samples.
+- `model/run_gain_stage.py` (user-written): reads `sim/out/test_guitar.wav`,
+  writes `gain_in.txt`, runs GHDL (`subprocess`, gain passed as
+  `-gg_gain=`), compares VHDL output with the model (0 mismatches on
+  240,000 samples), writes `sim/out/gain_out.wav`. One command:
+  `.venv\Scripts\python model\run_gain_stage.py` (repo root). GAIN was left
+  at 2**10 (1/32) while its comment says 2.0 — user to fix.
+- Plumbing by Claude: `model/wav_io.py`, `model/make_test_signal.py`
+  (synthetic plucked guitar, 5 s), `sim/gain_stage_file_tb.vhd`.
+- Ruff lints/formats Python (`ruff.toml`, pre-commit hook): docstrings with
+  Args/Returns and type hints required on every function.
+
 **Next — the user picks one:**
-1. Hear it: user writes a Python model of the gain stage (guided); Claude
-   writes WAV ↔ text plumbing; a testbench streams real audio through the
-   VHDL and the output is listened to.
-2. Effect 2: hard/soft clip distortion (non-linear functions, lookup tables).
-3. Top level / I2S interface groundwork (Pmod I2S2 not bought yet).
+1. Effect 2: hard/soft clip distortion (non-linear functions, lookup tables).
+2. Top level / I2S interface groundwork (Pmod I2S2 not bought yet).
 
 Run (repo root, PowerShell), e.g.:
 
@@ -79,3 +95,4 @@ Pmod I2S2 to be bought. Guitar peak level not measured yet (scope, ×10 probe).
 - 2026-11-02: gain_stage v3 rounding (#11); gain stage complete.
   soft_start designed (states, numbers, option B); entity written.
 - 2026-11-03: soft_start complete (state machine, ramp, gain_stage instance) + testbench (#13).
+- 2026-11-04: Python venv, gain stage model, hear-it pipeline (0 mismatches), Ruff (#14).
