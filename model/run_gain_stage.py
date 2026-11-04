@@ -8,7 +8,7 @@ import numpy as np
 from gain_stage_model import gain_stage_array
 from wav_io import read_text, read_wav_q123, write_text, write_wav_q123
 
-GAIN = 2**10  # Q3.15, 2.0. Must match -gg_gain=... on the GHDL command line.
+GAIN = 2**16  # Q3.15, 2.0. Must match -gg_gain=... on the GHDL command line.
 
 x_k, fs = read_wav_q123("sim/out/test_guitar.wav")
 

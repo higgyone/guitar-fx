@@ -57,7 +57,12 @@ Hides the power-up thump: mute 3 s, then ramp the gain 0 → 1.0 over
 
 **Next — the user picks one:**
 1. Effect 2: hard/soft clip distortion (non-linear functions, lookup tables).
-2. Top level / I2S interface groundwork (Pmod I2S2 not bought yet).
+2. **I2S interface — groundwork done** in [i2s.md](i2s.md) (2026-11-04): one
+   98.304 MHz clock domain, MCLK/SCLK/LRCK from a free-running counter,
+   blocks i2s_clocks → i2s_rx → i2s_tx → top. Clock design answered:
+   11-bit counter, MCLK/SCLK/LRCK = bits 2/4/10, strobes at 15/31/2047
+   (port table in i2s.md §3). **Next: user writes `rtl/i2s_clocks.vhd`**;
+   Claude then writes its testbench.
 
 Run (repo root, PowerShell), e.g.:
 
