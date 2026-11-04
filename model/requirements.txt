@@ -1,0 +1,9 @@
+# Python packages for the DSP models in model/.
+# Per-PC setup (repo root, PowerShell):
+#   python -m venv .venv
+#   .venv\Scripts\python -m pip install -r model\requirements.txt
+# In VS Code: Ctrl+Shift+P -> "Python: Select Interpreter" -> .venv
+numpy
+scipy
+matplotlib
+ruff

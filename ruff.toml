@@ -1,0 +1,30 @@
+# Ruff (Python linter + formatter) configuration for guitar-fx.
+# The Python counterpart of vsg_config.yaml: Ruff's formatter owns layout
+# (like VSG), and the linter catches bugs and enforces docstrings.
+#
+# Check:  .venv\Scripts\ruff check model
+# Fix:    .venv\Scripts\ruff check --fix model     (safe automatic fixes)
+# Format: .venv\Scripts\ruff format model          (reformat in place)
+#
+# The pre-commit hook (.pre-commit-config.yaml) runs both on staged Python.
+
+line-length = 100
+src = ["model"]     # project modules (wav_io, gain_stage_model) sort as first-party
+
+[lint]
+select = [
+    "E", "W",   # pycodestyle: style errors and warnings
+    "F",        # pyflakes: unused imports/variables, undefined names
+    "I",        # isort: import order
+    "B",        # bugbear: likely bugs
+    "N",        # pep8-naming
+    "UP",       # pyupgrade: modern Python syntax
+    "D",        # pydocstyle: docstrings on every function
+    "ANN",      # type hints on every function parameter and return value
+]
+ignore = [
+    "D100",     # module docstring not required (scripts are self-explanatory)
+]
+
+[lint.pydocstyle]
+convention = "google"   # Args: / Returns: sections, as used in model/

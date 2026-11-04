@@ -79,6 +79,14 @@ Rules that keep both PCs working:
   Per-PC setup is in that file's header (pipx is broken on the dev box; use
   the manual venv).
 - **Compile-time lint**: `ghdl -a --std=08 -Wall` should be clean.
+- **Python (`model/`)**: project venv `.venv` (gitignored), packages in
+  [model/requirements.txt](model/requirements.txt) (setup commands in its
+  header). Lint + format with **Ruff** ([ruff.toml](ruff.toml)): pycodestyle,
+  pyflakes, import order, bugbear, naming, Google-style docstrings with
+  Args/Returns, and type hints on every parameter and return value (`ANN`).
+  `.venv\Scripts\ruff check --fix model` then `.venv\Scripts\ruff format
+  model`; the pre-commit hook runs both. VS Code extension:
+  `charliermarsh.ruff`. Run scripts from the repo root (paths are relative).
 - **Simulation (Claude PC)**: GHDL, scratch workdir outside the repo:
   ```powershell
   $work = "$env:TEMP\ghdl_gfx_work"; New-Item -ItemType Directory -Force -Path $work | Out-Null

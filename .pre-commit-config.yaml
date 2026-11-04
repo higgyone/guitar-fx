@@ -33,3 +33,13 @@ repos:
     hooks:
       - id: vsg
         args: [-c, vsg_config.yaml, --fix]   # auto-style staged VHDL on commit
+
+  # Python (model/): Ruff linter (safe auto-fixes) then formatter.
+  # Config in ruff.toml. Same auto-fix behaviour as VSG: if anything is
+  # changed the commit stops; `git add` the fixes and commit again.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.3
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
