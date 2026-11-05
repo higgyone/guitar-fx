@@ -94,8 +94,16 @@ Hides the power-up thump: mute 3 s, then ramp the gain 0 → 1.0 over
      is above X); mutually exclusive cases belong in one if/elsif/else (the
      two separate ifs at positions 0 and 1..24 still work; merging is the
      user's call) — merged into one if/elsif/else afterwards (at the user's request).
-   - **Next:** loopback sim (ADC model → rx → tx → DAC model), then the
-     top level + Clocking Wizard 98.304 MHz + XDC pins (user, Vivado PC).
+   - 2026-11-05: **loopback sim passes** (`sim/i2s_loopback_tb.vhd`):
+     ADC model → i2s_rx → i2s_tx → DAC model, rx output wired straight into
+     tx. 39 frames of edge cases + a sine: DAC left = right = the ADC sample
+     from the frame before (latency exactly one frame, 20.8 µs). Catches a
+     broken rx (no `& sdout`) and a broken tx (23 bits).
+   - **Next: top level** (user, Vivado PC): Clocking Wizard 98.304 MHz from
+     CLK100MHZ, a top-level file wiring i2s_clocks + i2s_rx + soft_start +
+     i2s_tx to the Pmod JA pins (i2s.md §2 table), XDC pin lines (fix the
+     master XDC's `CLK100MHZ` case and its create_clock, see "Vivado" above).
+     Then the board test once the Pmod arrives.
 
 Run (repo root, PowerShell), e.g.:
 
