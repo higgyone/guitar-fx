@@ -80,9 +80,22 @@ Hides the power-up thump: mute 3 s, then ramp the gain 0 → 1.0 over
      old value); a default outside `rising_edge` runs on both clock edges
      (half-clock pulse); `natural range a to b` starts at a unless given
      `:=`; last assignment wins.
-   - **Next: `i2s_tx`** (i2s.md §4–5): parallel-in serial-out, same sample
-     in both slots, drive SDIN on sclk_fall; Claude writes a CS4344 DAC
-     model.
+   - 2026-11-05: **`i2s_tx` done** (user-written; branch `i2s-tx`). Counts
+     sclk falling edges m (frame_start = m 0, tested before sclk_fall since
+     both are '1' there; sets s_m to 1), position = m mod 32: 0 load / delay
+     bit, 1..24 send s_shift(23) and shift, else '0'. Double buffer: s_hold
+     catches samples any time, s_frame <= s_hold at m 0 (s_shift loads from
+     s_hold on that clock), right slot reloads from s_frame at m 32.
+     `sim/i2s_tx_tb.vhd` (i2s_clocks + CS4344 model; samples fed at awkward
+     points incl. the frame_start and m 32 clocks; sdin stable ±30 ns round
+     sclk rising) passes in xsim; catches strobe order, s_m 0, Q5-style
+     load from s_frame, no double buffer, 23 bits. Lessons: count if/end if
+     from the outside when the compiler says "syntax error near X" (the bug
+     is above X); mutually exclusive cases belong in one if/elsif/else (the
+     two separate ifs at positions 0 and 1..24 still work; merging is the
+     user's call).
+   - **Next:** loopback sim (ADC model → rx → tx → DAC model), then the
+     top level + Clocking Wizard 98.304 MHz + XDC pins (user, Vivado PC).
 
 Run (repo root, PowerShell), e.g.:
 
