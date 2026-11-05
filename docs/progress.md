@@ -61,8 +61,17 @@ Hides the power-up thump: mute 3 s, then ramp the gain 0 → 1.0 over
    98.304 MHz clock domain, MCLK/SCLK/LRCK from a free-running counter,
    blocks i2s_clocks → i2s_rx → i2s_tx → top. Clock design answered:
    11-bit counter, MCLK/SCLK/LRCK = bits 2/4/10, strobes at 15/31/2047
-   (port table in i2s.md §3). **Next: user writes `rtl/i2s_clocks.vhd`**;
-   Claude then writes its testbench.
+   (port table in i2s.md §3).
+   - 2026-11-05 (Vivado PC): **`i2s_clocks` done** (user-written; branch
+     `i2s-clocks`). `sim/i2s_clocks_tb.vhd` passes in xsim: every clock
+     checked against an integer model, strobe-before-edge, LRCK changes only
+     where SCLK falls, exact periods, 64/64/1 strobes per frame, reset
+     mid-frame; it catches mutated strobe values / clock bits. TB clock is
+     10.172 ns (an even number of ps, so the half period is exact). Grammar
+     learned: bit select `v(n)`, slices, `when … else`, `to_unsigned`, and
+     that `(others => '1')` is an aggregate, not an index.
+   - **Next: `i2s_rx`** (i2s.md §4–5); Claude writes a CS5343 ADC model
+     for its testbench.
 
 Run (repo root, PowerShell), e.g.:
 
