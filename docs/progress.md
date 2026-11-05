@@ -70,8 +70,19 @@ Hides the power-up thump: mute 3 s, then ramp the gain 0 → 1.0 over
      10.172 ns (an even number of ps, so the half period is exact). Grammar
      learned: bit select `v(n)`, slices, `when … else`, `to_unsigned`, and
      that `(others => '1')` is an aggregate, not an index.
-   - **Next: `i2s_rx`** (i2s.md §4–5); Claude writes a CS5343 ADC model
-     for its testbench.
+   - 2026-11-05: **`i2s_rx` done** (user-written; branch `i2s-rx`). Counts
+     sclk rising edges k from frame_start (counter stops at 25, reset/power-up
+     at 25 so a mid-frame reset waits for the next frame), shifts k = 1..24,
+     outputs `s_shift(22 downto 0) & sdout` at k = 24. `sim/i2s_rx_tb.vhd`
+     (i2s_clocks + CS5343 model: delay bit = NOT b23, padding 1010, right
+     slot = complement) passes in xsim; catches the Q5 copy trap, reset-to-0
+     and a late shift start. Lessons: signals update after the edge (read =
+     old value); a default outside `rising_edge` runs on both clock edges
+     (half-clock pulse); `natural range a to b` starts at a unless given
+     `:=`; last assignment wins.
+   - **Next: `i2s_tx`** (i2s.md §4–5): parallel-in serial-out, same sample
+     in both slots, drive SDIN on sclk_fall; Claude writes a CS4344 DAC
+     model.
 
 Run (repo root, PowerShell), e.g.:
 
