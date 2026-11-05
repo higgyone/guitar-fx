@@ -93,7 +93,7 @@ Hides the power-up thump: mute 3 s, then ramp the gain 0 → 1.0 over
      from the outside when the compiler says "syntax error near X" (the bug
      is above X); mutually exclusive cases belong in one if/elsif/else (the
      two separate ifs at positions 0 and 1..24 still work; merging is the
-     user's call).
+     user's call) — merged into one if/elsif/else afterwards (at the user's request).
    - **Next:** loopback sim (ADC model → rx → tx → DAC model), then the
      top level + Clocking Wizard 98.304 MHz + XDC pins (user, Vivado PC).
 

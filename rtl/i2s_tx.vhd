@@ -72,17 +72,17 @@ begin
                 sdin    <= '0';
                 s_m     <= 1;
             elsif (sclk_fall = '1') then
-                -- m = 32: right slot's delay bit, reload the same sample.
+                -- One case per position in the slot (m mod 32).
                 if (s_m mod 32 = 0) then
+                    -- m = 32: right slot's delay bit, reload the same sample.
                     s_shift <= s_frame; -- double buffer
                     sdin    <= '0';
-                end if;
-
-                -- Data bits, the same in both slots as the guitar is mono.
-                if (s_m mod 32 >= 1 and s_m mod 32 <= 24) then
+                elsif (s_m mod 32 >= 1 and s_m mod 32 <= 24) then
+                    -- Data bits, the same in both slots as the guitar is mono.
                     sdin    <= s_shift(23);
                     s_shift <= s_shift(22 downto 0) & '0';
                 else
+                    -- Padding.
                     sdin <= '0';
                 end if;
 
