@@ -3,7 +3,11 @@
 -- Audio path (one sample per frame, 48 kHz, 24-bit, mono = left channel in,
 -- the same sample to both channels out):
 --
---   ad_sdout -> i2s_rx -> soft_start -> i2s_tx -> da_sdin
+--   ad_sdout -> i2s_rx -> soft_start -> output_gain_stage -> i2s_tx -> da_sdin
+--
+-- output_gain_stage sets the output level for whatever the DAC feeds. It
+-- is last in the chain (effects will go before soft_start), so effects see
+-- the guitar's real level whatever the output is plugged into.
 --
 -- Clocks: the Clocking Wizard IP (clk_wiz_audio, made by
 -- scripts/create_project.tcl) turns the 100 MHz board clock into the
@@ -17,8 +21,11 @@
 -- s_clk), so every block leaves reset on the same clock edge. It starts at
 -- '1', so the design powers up in reset.
 --
--- Generics pass straight through to soft_start: the defaults are the
--- hardware values (3 s mute, 42.7 ms ramp); top_tb makes them tiny.
+-- Generics: g_mute_samples and g_ramp_bits pass straight through to
+-- soft_start (defaults are the hardware values: 3 s mute, 42.7 ms ramp;
+-- top_tb makes them tiny). g_gain is output_gain_stage's gain in Q3.15
+-- (1.0 = 32768): default 1024 = 1/32 = -30.1 dB, line level for the PC's
+-- USB mic input; top_tb uses 1.0 so it can check exact pass-through.
 -- Pins: constraints/Arty-A7-35-Master.xdc. Testbench: sim/top_tb.vhd.
 
 library ieee;
@@ -27,8 +34,9 @@ library ieee;
 
 entity top is
     generic (
-        g_mute_samples : natural := 144000; -- 3 s at 48 kHz
-        g_ramp_bits    : natural := 11      -- 2,048-sample ramp
+        g_mute_samples : natural                               := 144000; -- 3 s at 48 kHz
+        g_ramp_bits    : natural                               := 11;     -- 2,048-sample ramp
+        g_gain         : integer range -2 ** 17 to 2 ** 17 - 1 := 1024    -- 1/32 = -30.1 dB in Q3.15
     );
     port (
         clk100mhz  : in    std_logic; -- 100 MHz board clock (E3)
@@ -76,7 +84,10 @@ architecture rtl of top is
     -- i2s_rx -> soft_start ("out" of i2s_rx).
     signal s_sample_out       : signed(23 downto 0);
     signal s_sample_out_valid : std_logic;
-    -- soft_start -> i2s_tx ("in" of i2s_tx).
+    -- soft_start -> output_gain_stage.
+    signal s_soft_sample_out       : signed(23 downto 0);
+    signal s_soft_sample_out_valid : std_logic;
+    -- output_gain_stage -> i2s_tx ("in" of i2s_tx).
     signal s_sample_in       : signed(23 downto 0);
     signal s_sample_in_valid : std_logic;
 
@@ -134,6 +145,18 @@ begin
             reset            => s_reset,
             sample_in        => s_sample_out,
             sample_in_valid  => s_sample_out_valid,
+            sample_out       => s_soft_sample_out,
+            sample_out_valid => s_soft_sample_out_valid
+        );
+
+    -- Output level: a fixed gain (g_gain), last before the DAC.
+    output_gain_stage : entity work.gain_stage
+        port map (
+            clk              => s_clk,
+            reset            => s_reset,
+            sample_in        => s_soft_sample_out,
+            sample_in_valid  => s_soft_sample_out_valid,
+            gain             => to_signed(g_gain, 18),
             sample_out       => s_sample_in,
             sample_out_valid => s_sample_in_valid
         );
