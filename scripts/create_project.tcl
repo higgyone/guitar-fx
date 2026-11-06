@@ -53,22 +53,31 @@ if {[llength $xdc_files] > 0} {
     add_files -norecurse -fileset constrs_1 $xdc_files
 }
 
+# Clocking Wizard: 100 MHz board clock -> 98.304 MHz system clock (actual
+# 98.305: MMCM x7.25 = 725 MHz VCO, /7.375). One clock domain for the whole
+# design; MCLK/SCLK/LRCK are divided from it in i2s_clocks (docs/i2s.md §3)
+create_ip -name clk_wiz -vendor xilinx.com -library ip -version 6.0 -module_name clk_wiz_audio
+set_property -dict [list \
+  CONFIG.CLKOUT1_JITTER {146.903} \
+  CONFIG.CLKOUT1_PHASE_ERROR {119.384} \
+  CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {98.30508} \
+  CONFIG.MMCM_CLKFBOUT_MULT_F {7.250} \
+  CONFIG.MMCM_CLKOUT0_DIVIDE_F {7.375} \
+] [get_ips clk_wiz_audio]
+
 # Self-checking testbenches stop themselves (std.env.finish), so run to the
 # end instead of the default 1000 ns.
 set_property -name xsim.simulate.runtime -value all -objects [get_filesets sim_1]
 
 # Top levels: Vivado picks them from the compile order until they are set
 # here. Set them once the real top exists, e.g.
-#   set_property top top [get_filesets sources_1]
-#   set_property top passthrough_tb [get_filesets sim_1]
+set_property top top [get_filesets sources_1]
+set_property top top_tb [get_filesets sim_1]
 foreach fs {sources_1 sim_1} {
     # Skip empty filesets (no top to find, just a critical warning).
     if {[llength [get_files -quiet -of_objects [get_filesets $fs] *.vhd]] > 0} {
         update_compile_order -fileset $fs
     }
 }
-
-# Xilinx IP (Clocking Wizard for the 12.288 MHz audio MCLK) is added later,
-# also from this script, and only at the top level (see CLAUDE.md).
 
 puts "INFO: project ready: [file join $proj_dir $proj_name.xpr]"

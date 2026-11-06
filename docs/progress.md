@@ -99,11 +99,34 @@ Hides the power-up thump: mute 3 s, then ramp the gain 0 → 1.0 over
      tx. 39 frames of edge cases + a sine: DAC left = right = the ADC sample
      from the frame before (latency exactly one frame, 20.8 µs). Catches a
      broken rx (no `& sdout`) and a broken tx (23 bits).
-   - **Next: top level** (user, Vivado PC): Clocking Wizard 98.304 MHz from
-     CLK100MHZ, a top-level file wiring i2s_clocks + i2s_rx + soft_start +
-     i2s_tx to the Pmod JA pins (i2s.md §2 table), XDC pin lines (fix the
-     master XDC's `CLK100MHZ` case and its create_clock, see "Vivado" above).
-     Then the board test once the Pmod arrives.
+   - 2026-11-06 (Vivado PC): **top level done** (branch `i2s-top`, user
+     wrote all the VHDL and Vivado config):
+     - XDC: 11 ports — `clk100mhz` (E3, lowercase; master `create_clock`
+       commented out, the IP constrains its input), `reset_btn` (BTN0 D9),
+       `led_locked` (LD4 H5), JA renamed `da_mclk/da_lrck/da_sclk/da_sdin/
+       ad_mclk/ad_lrck/ad_sclk/ad_sdout`; all other pins commented; CFGBVS /
+       CONFIG_VOLTAGE 3.3 added.
+     - Clocking Wizard `clk_wiz_audio` created by `create_project.tcl`
+       (create_ip + CONFIG only): 100 MHz → 98.30508 MHz (VCO 725 MHz =
+       ×7.25, /7.375), 11 ppm off. Script also sets tops `top` / `top_tb`.
+       Run it with the full path: `& "C:\AMDDesignTools5.2\Vivadoinivado.bat"
+       -mode batch -source scripts/create_project.tcl` (Vivado not on PATH).
+     - `rtl/top.vhd`: IP as a component (MMCM reset '0'), reset =
+       `reset_btn or not locked` through a 2-FF synchroniser on s_clk
+       (start '1'), i2s_clocks → rx → soft_start → tx, one set of I2S
+       clocks to both Pmod rows; generics pass through to soft_start
+       (defaults = hardware 3 s mute).
+     - `sim/top_tb.vhd` (pins only: 100 MHz osc, ADC + DAC models, one
+       button press) passes in Vivado with the real IP (~1.29 ms sim).
+     - Implemented: **WNS +5.107 ns**, no critical warnings.
+     - Lessons: XDC = only rename inside `get_ports { }`; a port has one
+       direction (JA can't be one vector); IP needs a component; every
+       signal exactly one driver; wire by where a signal comes from;
+       generic map has no `;` before port map.
+   - **Next: board test** when the Pmod I2S2 arrives (JA, JP1 = SLV): PC
+     audio → LINE IN, LINE OUT → USB adapter mic in; expect 3 s silence
+     then pass-through; BTN0 = silence then fade-in. For the mic input the
+     level must be cut ~30 dB (÷32) — see the bench-kit note.
 
 Run (repo root, PowerShell), e.g.:
 
