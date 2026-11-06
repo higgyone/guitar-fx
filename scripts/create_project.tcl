@@ -69,8 +69,7 @@ set_property -dict [list \
 # end instead of the default 1000 ns.
 set_property -name xsim.simulate.runtime -value all -objects [get_filesets sim_1]
 
-# Top levels: Vivado picks them from the compile order until they are set
-# here. Set them once the real top exists, e.g.
+# Top levels: 
 set_property top top [get_filesets sources_1]
 set_property top top_tb [get_filesets sim_1]
 foreach fs {sources_1 sim_1} {

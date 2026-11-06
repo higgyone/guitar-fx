@@ -11,6 +11,8 @@
 --
 -- soft_start's generics are made tiny (mute 6 samples, ramp 4) so the audio
 -- appears after a few frames instead of 3 s.
+-- The output gain (g_gain) is set to 1.0 instead of the hardware's 1/32, so
+-- the DAC must play the ADC's samples exactly (check 4).
 --
 -- Checks:
 --   1. led_locked goes high (the MMCM locked).
@@ -42,6 +44,7 @@ architecture sim of top_tb is
     constant c_adc_dly       : time    := 20 ns;
     constant c_mute          : natural := 6;                             -- g_mute_samples for the test
     constant c_ramp_bits     : natural := 2;                             -- ramp = 4 samples
+    constant c_gain          : integer := 2 ** 15;                       -- output gain 1.0 (Q3.15)
     constant c_settle        : natural := c_mute + 2 ** c_ramp_bits + 4; -- frames to reach pass-through
     constant c_press_at      : natural := 30;                            -- frame where the button is pressed
     constant c_frames        : natural := 60;                            -- frames to run
@@ -89,7 +92,8 @@ begin
     dut : entity work.top
         generic map (
             g_mute_samples => c_mute,
-            g_ramp_bits    => c_ramp_bits
+            g_ramp_bits    => c_ramp_bits,
+            g_gain         => c_gain
         )
         port map (
             clk100mhz  => clk100mhz,
