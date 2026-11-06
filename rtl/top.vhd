@@ -26,6 +26,10 @@
 -- top_tb makes them tiny). g_gain is output_gain_stage's gain in Q3.15
 -- (1.0 = 32768): default 1024 = 1/32 = -30.1 dB, line level for the PC's
 -- USB mic input; top_tb uses 1.0 so it can check exact pass-through.
+--
+-- Test tone: g_test_tone = true sends tone_gen's 1 kHz, -20 dBFS sine
+-- straight to i2s_tx instead of the audio path, to check the DAC and line
+-- out with nothing plugged into the line in. Leave it false for normal use.
 -- Pins: constraints/Arty-A7-35-Master.xdc. Testbench: sim/top_tb.vhd.
 
 library ieee;
@@ -36,7 +40,8 @@ entity top is
     generic (
         g_mute_samples : natural                               := 144000; -- 3 s at 48 kHz
         g_ramp_bits    : natural                               := 11;     -- 2,048-sample ramp
-        g_gain         : integer range -2 ** 17 to 2 ** 17 - 1 := 1024    -- 1/32 = -30.1 dB in Q3.15
+        g_gain         : integer range -2 ** 17 to 2 ** 17 - 1 := 1024;   -- 1/32 = -30.1 dB in Q3.15
+        g_test_tone    : boolean                               := false   -- true: 1 kHz test tone to the DAC
     );
     port (
         clk100mhz  : in    std_logic; -- 100 MHz board clock (E3)
@@ -90,6 +95,12 @@ architecture rtl of top is
     -- output_gain_stage -> i2s_tx ("in" of i2s_tx).
     signal s_sample_in       : signed(23 downto 0);
     signal s_sample_in_valid : std_logic;
+    -- tone_gen -> the test-tone switch.
+    signal s_tone_sample       : signed(23 downto 0);
+    signal s_tone_sample_valid : std_logic;
+    -- The test-tone switch -> i2s_tx.
+    signal s_tx_sample       : signed(23 downto 0);
+    signal s_tx_sample_valid : std_logic;
 
 begin
 
@@ -117,8 +128,8 @@ begin
         port map (
             clk             => s_clk,
             reset           => s_reset,
-            sample_in       => s_sample_in,
-            sample_in_valid => s_sample_in_valid,
+            sample_in       => s_tx_sample,
+            sample_in_valid => s_tx_sample_valid,
             sclk_fall       => s_sclk_fall,
             frame_start     => s_frame_start,
             sdin            => da_sdin
@@ -160,6 +171,23 @@ begin
             sample_out       => s_sample_in,
             sample_out_valid => s_sample_in_valid
         );
+
+    -- Test tone: a 1 kHz sine, one sample per frame.
+    tone_stage : entity work.tone_gen
+        port map (
+            clk              => s_clk,
+            reset            => s_reset,
+            frame_start      => s_frame_start,
+            sample_out       => s_tone_sample,
+            sample_out_valid => s_tone_sample_valid
+        );
+
+    -- The test-tone switch: g_test_tone picks what i2s_tx sends. It is a
+    -- generic, so synthesis keeps only the chosen side.
+    s_tx_sample       <= s_tone_sample when g_test_tone else
+                         s_sample_in;
+    s_tx_sample_valid <= s_tone_sample_valid when g_test_tone else
+                         s_sample_in_valid;
 
     -- Reset synchroniser: two flip-flops on s_clk.
     reset_sync : process (s_clk) is

@@ -93,7 +93,8 @@ begin
         generic map (
             g_mute_samples => c_mute,
             g_ramp_bits    => c_ramp_bits,
-            g_gain         => c_gain
+            g_gain         => c_gain,
+            g_test_tone    => false
         )
         port map (
             clk100mhz  => clk100mhz,
