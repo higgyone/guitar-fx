@@ -1,0 +1,4 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "preamp")(type "KiCad")(uri "${KIPRJMOD}/preamp.pretty")(options "")(descr "Project footprints: library copies with 3D models in 3d/"))
+)
