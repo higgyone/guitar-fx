@@ -3,7 +3,36 @@
 Where the project stands and what comes next. **Read this at the start of
 every session (either PC); update it at the end.**
 
-## Current state (2026-11-04, end of session, laptop)
+## Priorities (set 2026-11-07)
+
+**Now:**
+1. The preamp PCB (PR #6): route the board, order the mounting hardware.
+2. Implementing the effects (spec section 6), on top of the working I2S path.
+
+**Later (not before the PCB and effects):**
+- **Boot from the Arty's QSPI flash.** Write the bitstream into the on-board
+  flash, so the board configures itself at power-on instead of being
+  programmed from Vivado every time.
+- **Control over the Arty's USB-UART.** Commands from the PC to switch
+  effects in and out and change their parameters (spec Q5.1 / Q5.2).
+
+## Board test — done (2026-11-06, Vivado PC)
+
+Arty A7-35T + Pmod I2S2 on JA, USB audio adapter (headphone out → LINE IN,
+LINE OUT → mic in), PicoScope 2207A.
+
+- Pass-through with `g_gain` 1024: gain −29..−30 dB, flat within 1 dB from
+  200 Hz to 15 kHz (−3 dB at 100 Hz), no dropouts.
+- Soft start: a BTN0 tap mutes for 3.0 s, then a linear ramp (32 ms
+  10–90 %) back to the same level.
+- Test tone (#22): `rtl/tone_gen.vhd` (1 kHz, −20 dBFS), sent straight to the
+  DAC when `top`'s generic `g_test_tone` is `true` (default `false`). Line out 108 mV peak; recorded at −9.8 dBFS, THD 0.03 %.
+- Output gain stage after soft_start (#21): generic `g_gain`, Q3.15.
+- **Bench gotcha:** Windows' microphone processing (MME / shared WASAPI)
+  removes a steady tone, which looks exactly like hardware dropouts. Record
+  raw (WDM-KS or exclusive WASAPI, one full-duplex stream).
+
+## Earlier state (2026-11-04, end of session, laptop)
 
 ### FPGA: `gain_stage` — complete (#11)
 

@@ -117,6 +117,9 @@ Board has 4 switches, 4 buttons, 4 LEDs + 4 RGB LEDs, and the USB-UART.
 - Q5.2 Knobs for parameters (gain, delay time, mix)? Options: the Artix-7
   XADC with potentiometers, a Pmod ADC, a rotary encoder, or set them over
   UART from the PC. ?
+  - 2026-11-07: UART control from the PC is planned (switch effects in and
+    out, change parameters), after the PCB and the effects. See
+    [progress.md](progress.md) "Priorities".
 - Q5.3 Footswitch? (needs debouncing — a good first VHDL exercise) ?
 - Q5.4 Any level meter / clip indicator on the LEDs? ?
 
