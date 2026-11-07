@@ -310,18 +310,45 @@ the bare guitar. The amp has no FX loop, so it goes into the front input.
 - For an enclosure later: a switchable 0 / −10 / −20 dB L-pad after the Pmod
   (R_s 6.8k / R_p 3.3k, or 9.1k / 1k; keep R_s + R_p ≥ 4.3 kΩ).
 
-## PCB (first draft, 2026-11-01)
+## PCB (placement rev 2, 2026-11-07)
 
 [hardware/preamp/preamp.kicad_pcb](../hardware/preamp/preamp.kicad_pcb):
-72 × 54 mm, 4 layers, M3 holes in the corners. Parts placed, power fanned out
-to the planes, signal nets **not routed yet** (DRC lists them as unconnected).
+72 × 54 mm, 4 layers, M3 holes in the corners. Parts placed, power and GND
+fanned out to the planes, signal nets **not routed yet** (DRC lists them as
+unconnected).
 
 | Layer | Use |
 |-------|-----|
-| L1 F.Cu | All parts, signal tracks, spare area poured **VCC** |
+| L1 F.Cu | All parts, signal tracks, spare area poured GND |
 | L2 In1.Cu "GND" | Solid GND plane |
-| L3 In2.Cu "PWR" | Solid VCC plane |
-| L4 B.Cu | Spare signal layer, spare area poured GND |
+| L3 In2.Cu "PWR" | Solid **GND** plane (layer name kept) |
+| L4 B.Cu | VCC pour (priority 1) from C1 to U1, rest poured GND |
+
+Placement and planes changed on 2026-11-07, after an SI/PI review:
+- **U1 moved towards J2**, then spaced out by hand for soldering-iron access
+  (U1 at 146.6, 98.7): the 1.1 MΩ input node (J2 tip → R4/C8 → C4 → R10 →
+  pin 3) is ~24 mm (was ~30 mm). The output (low impedance) takes the long
+  run to J3. If hum or RF pickup shows up, move C8/R4 to J2's tip first.
+- **Pin 2 node shortened:** C7 across pins 1–2, R7 vertical beside it, RV1
+  (rotated 180°, so its pin-2 pads face left and its R6 pad faces right)
+  just above U1, R6 / R9 to the right of RV1, C5 above RV1.
+- **R5** runs on L1 under U1's body, between the pad rows: pin 3 → R5.1 down
+  one side, R5.2 → pins 6/7 up the other. No jumper on L4.
+- **Both inner planes are GND.** VCC feeds only U1 pin 8, C2 and R2 (~4 mA),
+  so it doesn't need a plane. It is an L-shaped **L4 pour**: across the top
+  behind R1/C1 (joined to an L1 VCC pour there by a via farm) and down a
+  strip at x 152–159, right of U1, to C2 and R2 (VCC vias at C2.1 and R2.1).
+  Keep its left edge at x ≥ 152: further left it runs under U1, R10 and
+  RV1, whose through-hole pads are on the pin 2 node. Pin 8 → C2.1 is a short L1 track, so C2
+  sits between the supply and the pin. The pour stays clear of the input
+  area. Two GND planes shield better (also the THT pins of J2 and RV1) and
+  give L4 a GND reference.
+- **L1 pour is GND** (was VCC): no VCC copper next to the input node, and no
+  VCC–GND solder bridges on hand-soldered 0603s.
+- H4 had a stray VCC net on its (non-plated) pad; cleared.
+
+Superseded notes from the first draft (2026-11-01) follow, kept for the
+reasoning; where they disagree with the list above, the list wins.
 
 Stackup (1.6 mm): 1 oz outer, 0.1 mm prepreg L1–L2, 1.24 mm core, 0.1 mm
 prepreg L3–L4. Set the real figures from the fab's 4-layer stackup when
@@ -333,8 +360,10 @@ ordering.
 - The L2–L3 core is thick, so plane-to-plane capacitance is small; C2
   (100 nF at U1 pin 8) and C1 still do the decoupling.
 - L4 tracks reference the L3 VCC plane: keep L4 for short, non-critical runs.
-- Fanout: every SMD GND / VCC pad has a 0.4 mm track to a 0.6 / 0.3 mm via
-  (U1 pin 8 shares C2's VCC via). THT GND pads connect to every GND layer.
+- Fanout: every SMD GND / VCC pad has a 0.4 mm track to a via (redone
+  2026-11-07 after the move; VCC vias at C2.1 and R2.1 land in the L4 VCC
+  pour). THT GND pads connect to every GND layer. 23 GND stitching vias
+  along the board edges tie the L1 / L4 pours to the planes.
 - The L1 VCC pour carries DC only, but it is copper next to the 1.1 MΩ input
   node (J2 tip → C4 → R10 → U1 pin 3 and R5). If that node picks up hum or
   supply noise, add a rule area on L1 that keeps the VCC pour away from it, or
