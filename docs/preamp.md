@@ -313,9 +313,11 @@ the bare guitar. The amp has no FX loop, so it goes into the front input.
 ## PCB (placement rev 2, 2026-11-07)
 
 [hardware/preamp/preamp.kicad_pcb](../hardware/preamp/preamp.kicad_pcb):
-72 × 54 mm, 4 layers, M3 holes in the corners. Parts placed, power and GND
-fanned out to the planes, signal nets **not routed yet** (DRC lists them as
-unconnected).
+72 × 54 mm, 4 layers, M3 holes in the corners. **Routed** (2026-11-07): every
+track 0.25 mm (signal) or 0.5 mm (power), DRC clean with no exclusions,
+guitar / amp / lightning logo on the top silkscreen
+([hardware/preamp/art](../hardware/preamp/art)). Fab files and order
+settings: see "Manufacture" below.
 
 | Layer | Use |
 |-------|-----|
@@ -380,3 +382,39 @@ ordering.
   standoff's hex). Don't rely on solder mask under a washer.
 - `preamp.kicad_dru`: J3's library footprint draws its own edge notch and its
   silkscreen crosses it; a DRC rule allows that for J3 only.
+
+## Manufacture (JLCPCB, 2026-11-07)
+
+Upload [hardware/preamp/fab/preamp_jlcpcb_gerbers.zip](../hardware/preamp/fab/preamp_jlcpcb_gerbers.zip);
+the order settings and how to regenerate the files are in
+[hardware/preamp/fab/README.md](../hardware/preamp/fab/README.md).
+
+The board's stackup is now JLCPCB's **JLC04161H-3313** (it replaces the
+generic figures in the first-draft notes above):
+
+| Layer | Thickness | Notes |
+|-------|-----------|-------|
+| L1 F.Cu | 0.035 mm (1 oz) | |
+| prepreg 3313 | 0.0994 mm | εr 4.1 |
+| L2 In1.Cu | 0.0152 mm (0.5 oz) | |
+| core | 1.265 mm | εr 4.6 |
+| L3 In2.Cu | 0.0152 mm (0.5 oz) | |
+| prepreg 3313 | 0.0994 mm | εr 4.1 |
+| L4 B.Cu | 0.035 mm (1 oz) | |
+
+Finish ENIG (flat pads for hand-soldering the 0402s and the SOIC-8).
+
+**Footprints checked against the datasheets (2026-11-07):** land patterns,
+hole sizes, pin positions and polarity of every part match. One fix: J3
+(SJ1-3523N) now uses a project copy of KiCad's footprint
+(`preamp.pretty/Jack_3.5mm_CUI_SJ1-3523N_Horizontal`) with the solder slots
+widened from 0.4 × 1.4 mm to Same Sky's recommended **1.5 × 0.8 mm** (pads
+2.4 × 1.5 mm); the tabs are 0.2 mm thick, so 0.4 mm was too tight once plated.
+Notes, no change made:
+- C3 (EEE-FK1E100R) is really 4 × 5.8 mm; `CP_Elec_4x5.4` has the same pads,
+  only the 3D height is wrong.
+- J3's ring is unconnected: the line out is mono on the tip, so a stereo lead
+  carries it on the left channel only.
+- J2's front face sits 3.65 mm inside the board edge.
+- The 0402 / 0603 lands are KiCad's standard hand-solder pads, not checked
+  against the Murata / Yageo drawings.
