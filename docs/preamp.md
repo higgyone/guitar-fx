@@ -245,10 +245,27 @@ power. Residual hum → handled digitally (noise gate; optional IIR notch at
 ## Gain
 
 - Full-scale peak at jack: 3.75 Vpp / 2 = 1.875 V. Target (−6 dB): **≈ 0.94 V peak**.
-- Guitar peak: not measured yet (typical single coil 0.3–0.5 V, hard strum).
-  Measure: scope ×10 probe, bridge pickup, volume/tone full, single-shot
-  trigger ~100 mV, hardest strum.
+- **Guitar peak: measured 2026-11-08 = 205 mV** (worst of 5 hard strums:
+  96, 111, 142, 205, 158 mV peak; positive and negative peaks about equal).
+  PicoScope 2207A, ×10 probe on the guitar lead, DC, ±2 V range (no
+  over-range), single-shot trigger rising through 100 mV, 1 s at 25 µs per
+  strum (scratch script `pico_strum.py`). Volume and tone full up, **both
+  pickups selected**. A single pickup alone may differ: re-check the bridge
+  pickup if the gain set from this clips.
+  (Typical single coil is quoted at 0.3–0.5 V; this guitar is lower.)
 - Gain needed = 0.94 / guitar peak → ≈ 1.9 (0.5 V) … 3.1 (0.3 V) … 4.7 (0.2 V).
+- **The measured strums weren't the hardest possible**, so design for a
+  **0.3 V peak** (1.5× the measured 205 mV, +3.3 dB) rather than 205 mV.
+- **For this guitar: G = 3 → RV1 = (3 − 1) × 10 kΩ = 20 kΩ.**
+  - A 0.3 V strum lands at 0.9 V, about −6 dBFS (the target).
+  - The measured 205 mV lands at 0.62 V, about −10 dBFS.
+  - The ADC clips at 1.875 / 3 = 0.625 V at the jack: 3× the measured peak
+    (+9.7 dB), about 2× the 0.3 V design peak.
+  - (Without the margin it would be G = 0.94 / 0.205 ≈ 4.6, RV1 ≈ 36 kΩ,
+    clipping at 0.41 V, only 2× the measured peak.)
+  - Set RV1 on the bench (scope on the line out, or the ADC level), not by
+    the pot's markings. Turn it up later if the level is low; the FPGA's
+    gain stage can also add level after the ADC.
 - Design: adjustable **G ≈ 1.5 … 5**, non-inverting, `G = 1 + Rf/Rg`,
   Rf = fixed + trim pot.
 - **Chosen: Rg = 10 kΩ, Rf = R6 (0 Ω link) + 50 kΩ trim pot → G = 1 … 6.**

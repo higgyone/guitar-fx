@@ -16,6 +16,32 @@ every session (either PC); update it at the end.**
 - **Control over the Arty's USB-UART.** Commands from the PC to switch
   effects in and out and change their parameters (spec Q5.1 / Q5.2).
 
+## Effect #2: hard-clip distortion — on the board (2026-11-08, branch `effect-distortion`)
+
+- `rtl/hard_clip_stage.vhd` (user-written): clamps each sample to
+  ±threshold, 1 clock latency. `threshold` is `unsigned(22 downto 0)`
+  (Q0.23), so a negative clip level can't be passed in (0x800000 would
+  negate to itself). `sim/hard_clip_stage_tb.vhd`: 22 checks, passes in xsim.
+- `top.vhd`: `i2s_rx → drive_gain_stage (gain_stage, g_drive_gain) →
+  clip_stage (g_threshold) → bypass mux → soft_start → output gain`.
+  **SW0** (`distortion_sw`, 2-FF synchroniser, starts bypassed) picks
+  distortion ('1') or dry ('0'). Defaults: drive ×2.0, threshold 0.125
+  (sized for the guitar's 205 mV through the preamp at G = 3). Sample
+  signals renamed after the block that drives them (`s_rx_sample`, ...).
+- `top_tb` holds SW0 at bypass: exact pass-through still checked (passes).
+- Routed: WNS +2.549 ns (was +5.107), 3 DSPs, 158 LUTs.
+- **Bench test** (USB adapter, 1 kHz sine, scratch `dist_test.py`):
+  - SW0 down: gain −28.8 dB at every level, as before.
+  - SW0 up: +6.1 dB below the clip (the ×2 drive); clipping starts between
+    −12 and −9 dBFS in (predicted −11.9: the adapter's full scale is about
+    12.2 dB below the ADC's); above it the output levels off, H3 rises
+    from −46 to −13 dB, crest factor 4.3 → 2.9 dB (toward a square).
+  - Waveforms and spectra: ![clean vs distortion](img/distortion_vs_clean.png)
+    (each wave averaged over ~1000 cycles; the slope on the flat tops is
+    the USB mic input's AC coupling, not the FPGA).
+- **Next:** a `top_tb` run with SW0 up (check the clipped output); then soft
+  clip with a lookup table (the new idea in effect #2).
+
 ## Board test — done (2026-11-06, Vivado PC)
 
 Arty A7-35T + Pmod I2S2 on JA, USB audio adapter (headphone out → LINE IN,
