@@ -16,6 +16,33 @@ every session (either PC); update it at the end.**
 - **Control over the Arty's USB-UART.** Commands from the PC to switch
   effects in and out and change their parameters (spec Q5.1 / Q5.2).
 
+## Effect #3: soft-clip distortion — on the board (2026-11-08, branch `effect-soft-clip`)
+
+- `rtl/soft_clip_stage.vhd` (user-written): `out = tanh(k·in) / tanh(k)`,
+  k = generic `g_drive` (real, default 3.0). A 1024-entry ROM of the
+  positive half, filled at elaboration by a `math_real` function; negative
+  inputs use `not x` (= −x − 1, no overflow) on the way in and out (odd
+  symmetry). Address = bits 22..13 of |x|, so the curve is a 1024-step
+  staircase. Registered read (block RAM), 1 clock latency.
+  `sim/soft_clip_stage_tb.vhd`: 2062 samples (every entry, both signs,
+  symmetry, monotonic, small-signal gain 3.013), passes in xsim.
+- `top.vhd`: soft clip fed from `s_rx_sample` (no drive stage), generic
+  `g_soft_drive` (3.0). **SW0** = distortion on/off, **SW1**
+  (`soft_clip_sw`, C11, 2-FF synchroniser) = soft ('1') / hard ('0'),
+  one 3-way `when ... else` mux.
+- `top_tb` generic `g_mode` (0 dry, 1 hard, 2 soft): all three pass.
+- **Bench test** (USB adapter, 1 kHz sine, SW0 + SW1 up):
+  - Gain −19.2 dB at every level, 9.5 dB above bypass: the curve's slope at
+    zero, k / tanh(k) = 3.01 (9.6 dB).
+  - At −6 dBFS in, H3 is −40 dB (tanh predicts −39 dB) and THD rises 0.6 →
+    1.0 %: the curve is starting to bend. The bench can't go further: its
+    full scale is ~0.25 of the ADC's, × k = 0.75, where tanh is still near
+    straight. Needs the guitar + preamp (or a bigger `g_soft_drive`) to
+    hear it properly.
+  - ![clean vs hard vs soft](img/soft_vs_hard.png)
+- **Next:** try it with the guitar once the preamp boards arrive; maybe
+  interpolate between table entries to remove the staircase.
+
 ## Effect #2: hard-clip distortion — on the board (2026-11-08, branch `effect-distortion`)
 
 - `rtl/hard_clip_stage.vhd` (user-written): clamps each sample to
