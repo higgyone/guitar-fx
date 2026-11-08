@@ -4,13 +4,17 @@
 --   clk100mhz  100 MHz oscillator; the Clocking Wizard makes the 98.304 MHz
 --              system clock from it (in Vivado's simulation the real IP model)
 --   reset_btn  BTN0, pressed once in the middle of the run
---   distortion_sw  SW0, from the generic g_distortion:
---              false (default): '0', bypass. Drive + clip are skipped, so
---                the DAC must play the ADC's samples bit-exact.
---              true: '1', distortion on, with drive x2.0 and threshold
---                0.125 (c_drive, c_threshold, passed to top). The expected
---                output is then expected_out(x): x x drive (rounded and
---                saturated as gain_stage does), clipped to +/- threshold.
+--   distortion_sw  SW0 and soft_clip_sw SW1, held for the whole run, from
+--              the generic g_mode:
+--              0 (default) dry: SW0 '0'. The DAC must play the ADC's
+--                samples bit-exact.
+--              1 hard clip: SW0 '1', SW1 '0', drive x2.0, threshold 0.125
+--                (c_drive, c_threshold, passed to top). expected_out(x):
+--                x x drive (rounded and saturated as gain_stage does),
+--                clipped to +/- threshold.
+--              2 soft clip: SW0 '1', SW1 '1', k = 3.0 (c_soft_drive).
+--                expected_out(x): the tanh table worked out here with
+--                math_real (as soft_clip_stage_tb does), not from the DUT.
 --   ADC model  CS5343 on ad_mclk / ad_lrck / ad_sclk / ad_sdout: drives sdout
 --              20 ns after each ad_sclk falling edge (I2S, as in i2s_rx_tb)
 --   DAC model  CS4344 on da_mclk / da_lrck / da_sclk / da_sdin: reads sdin on
@@ -33,9 +37,10 @@
 --   5. After the button: muted again, then exact again. The button also
 --      resets i2s_clocks mid-frame, so the frame it lands in and the next
 --      one are not checked.
---   6. Distortion only: coverage. Frames checked must include clipped
---      samples (+threshold and -threshold) and unclipped non-zero ones, so
---      both sides of the clip are exercised through the real chain.
+--   6. Coverage. Hard clip: frames checked must include clipped samples
+--      (+threshold and -threshold) and unclipped non-zero ones. Soft clip:
+--      positive and negative outputs. So each path is exercised through
+--      the real chain.
 --
 -- The test pattern (test_sample) mixes a 0.9 full-scale sine with +/-
 -- full scale and three small values: 2**18 and -(2**18 + 12345) (x2 stays
@@ -43,9 +48,10 @@
 --
 -- Run (repo root, PowerShell), Vivado: set top_tb as the simulation top,
 -- Run Behavioral Simulation (Vivado compiles the Clocking Wizard's model).
--- For the distortion run, set g_distortion=true in the simulation
--- settings (Generics/Parameters). xsim CLI: xelab top_tb -L unisim
--- -generic_top "g_distortion=true".
+-- For the other runs, set g_mode=1 (hard) or g_mode=2 (soft) in the
+-- simulation settings (Generics/Parameters). xsim CLI: xelab top_tb
+-- -L unisim -generic_top g_mode=2 (the .bat launcher splits "x=y", so put
+-- the xelab arguments in a file and pass -f file).
 -- GHDL can't simulate the Clocking Wizard IP (its model is Verilog).
 
 library ieee;
@@ -55,7 +61,7 @@ library ieee;
 
 entity top_tb is
     generic (
-        g_distortion : boolean := false -- true: SW0 up, check the distorted output
+        g_mode : natural range 0 to 2 := 0 -- 0 dry, 1 hard clip, 2 soft clip
     );
 end entity top_tb;
 
@@ -71,6 +77,7 @@ architecture sim of top_tb is
     constant c_frames        : natural := 60;                            -- frames to run
     constant c_drive         : integer := 2 ** 16;                       -- drive x2.0 (Q3.15)
     constant c_threshold     : integer := 2 ** 20;                       -- clip at 0.125 (Q0.23)
+    constant c_soft_drive    : real    := 3.0;                           -- soft clip k
 
     -- Test sample n: a sine, 16 frames per cycle, 0.9 of full scale, with
     -- full-scale values and small values now and then.
@@ -96,8 +103,23 @@ architecture sim of top_tb is
 
     end function test_sample;
 
-    -- What the DAC should play for ADC sample x. Bypass: x itself.
-    -- Distortion: x x c_drive the way gain_stage does it (Q1.23 x Q3.15 =
+    -- Soft clip table entry a (0 .. 1023), from the definition:
+    -- round(tanh(k * a / 1024) / tanh(k) * (2**23 - 1)).
+
+    function soft_entry (
+        a : natural
+    ) return integer is
+    begin
+
+        return integer(round(tanh(c_soft_drive * real(a) / 1024.0) / tanh(c_soft_drive)
+                             * real(2 ** 23 - 1)));
+
+    end function soft_entry;
+
+    -- What the DAC should play for ADC sample x. Dry: x itself.
+    -- Soft clip: address = bits 22..13 of |x| (|x| = not x for x < 0), then
+    -- the table entry, inverted back (not) for x < 0.
+    -- Hard clip: x x c_drive the way gain_stage does it (Q1.23 x Q3.15 =
     -- Q4.38, add 2**14 to round, keep bits 38..15, saturate to Q1.23), then
     -- clipped to +/- c_threshold as hard_clip_stage does.
 
@@ -105,13 +127,27 @@ architecture sim of top_tb is
         x : integer
     ) return integer is
 
-        variable p : signed(41 downto 0);
-        variable y : integer;
+        variable p   : signed(41 downto 0);
+        variable y   : integer;
+        variable mag : signed(23 downto 0);
+        variable a   : natural;
 
     begin
 
-        if (not g_distortion) then
+        if (g_mode = 0) then
             return x;
+        elsif (g_mode = 2) then
+            if (x >= 0) then
+                mag := to_signed(x, 24);
+            else
+                mag := not to_signed(x, 24);
+            end if;
+            a := to_integer(unsigned(mag(22 downto 13)));
+            if (x >= 0) then
+                return soft_entry(a);
+            else
+                return -soft_entry(a) - 1;
+            end if;
         end if;
 
         p := to_signed(x, 24) * to_signed(c_drive, 18) + to_signed(2 ** 14, 42);
@@ -136,7 +172,8 @@ architecture sim of top_tb is
 
     signal clk100mhz     : std_logic := '0';
     signal reset_btn     : std_logic := '0';
-    signal distortion_sw : std_logic := '0'; -- SW0: set from g_distortion below
+    signal distortion_sw : std_logic := '0'; -- SW0: set from g_mode below
+    signal soft_clip_sw  : std_logic := '0'; -- SW1: set from g_mode below
     signal ad_sdout      : std_logic := '0';
     signal led_locked    : std_logic;
     signal da_mclk       : std_logic;
@@ -157,8 +194,10 @@ begin
 
     clk100mhz <= not clk100mhz after c_clk100_period / 2;
 
-    -- SW0 is held for the whole run (switching is not tested here).
-    distortion_sw <= '1' when g_distortion else
+    -- The switches are held for the whole run (switching is not tested here).
+    distortion_sw <= '0' when g_mode = 0 else
+                     '1';
+    soft_clip_sw  <= '1' when g_mode = 2 else
                      '0';
 
     dut : entity work.top
@@ -168,12 +207,14 @@ begin
             g_gain         => c_gain,
             g_test_tone    => false,
             g_threshold    => c_threshold,
-            g_drive_gain   => c_drive
+            g_drive_gain   => c_drive,
+            g_soft_drive   => c_soft_drive
         )
         port map (
             clk100mhz     => clk100mhz,
             reset_btn     => reset_btn,
             distortion_sw => distortion_sw,
+            soft_clip_sw  => soft_clip_sw,
             ad_sdout      => ad_sdout,
             led_locked    => led_locked,
             da_mclk       => da_mclk,
@@ -398,7 +439,13 @@ begin
                                & integer'image(adc_frame - 1) & ")"
                         severity failure;
                     n_pass := n_pass + 1;
-                    if (exp = c_threshold) then
+                    if (g_mode = 2) then
+                        if (exp > 0) then
+                            n_clip_p := n_clip_p + 1;                                                     -- soft: positive outputs
+                        elsif (exp < 0) then
+                            n_clip_n := n_clip_n + 1;                                                     -- soft: negative outputs
+                        end if;
+                    elsif (exp = c_threshold) then
                         n_clip_p := n_clip_p + 1;
                     elsif (exp = -c_threshold) then
                         n_clip_n := n_clip_n + 1;
@@ -414,20 +461,30 @@ begin
                 report "coverage: " & integer'image(runs) & " pass-through stretch(es), "
                        & integer'image(n_pass) & " frames checked"
                 severity failure;
-            if (g_distortion) then
-                -- 6. Both sides of the clip exercised.
+            if (g_mode = 2) then
+                -- 6. Soft clip: both signs exercised.
+                assert n_clip_p > 0 and n_clip_n > 0
+                    report "soft clip coverage: " & integer'image(n_clip_p) & " positive, "
+                           & integer'image(n_clip_n) & " negative"
+                    severity failure;
+                report "SOFT CLIP run: " & integer'image(n_pass) & " frames exact, in "
+                       & integer'image(runs) & " stretches; " & integer'image(n_clip_p)
+                       & " positive, " & integer'image(n_clip_n) & " negative"
+                    severity note;
+            elsif (g_mode = 1) then
+                -- 6. Hard clip: both sides of the clip exercised.
                 assert n_clip_p > 0 and n_clip_n > 0 and n_lin > 0
                     report "distortion coverage: " & integer'image(n_clip_p) & " at +threshold, "
                            & integer'image(n_clip_n) & " at -threshold, "
                            & integer'image(n_lin) & " unclipped"
                     severity failure;
-                report "DISTORTION run: " & integer'image(n_pass) & " frames exact, in "
+                report "HARD CLIP run: " & integer'image(n_pass) & " frames exact, in "
                        & integer'image(runs) & " stretches; " & integer'image(n_clip_p)
                        & " at +threshold, " & integer'image(n_clip_n) & " at -threshold, "
                        & integer'image(n_lin) & " unclipped non-zero"
                     severity note;
             else
-                report "BYPASS run: " & integer'image(n_pass) & " frames of exact pass-through checked, in "
+                report "DRY run: " & integer'image(n_pass) & " frames of exact pass-through checked, in "
                        & integer'image(runs) & " stretches (before and after the button)"
                     severity note;
             end if;
