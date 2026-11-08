@@ -2019,7 +2019,7 @@
 			)
 		)
 		(path "/ade44233-ea82-53e1-9477-b8ee92e1c655")
-		(attr through_hole exclude_from_pos_files)
+		(attr through_hole)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_line
 			(start 6 -7.7)

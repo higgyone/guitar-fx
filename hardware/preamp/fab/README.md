@@ -49,6 +49,31 @@ copper layers in the right order (L2 and L3 solid GND with clearances round
 the holes), the logo on the top silkscreen, the J3 notch in the outline, and
 the three J3 slots.
 
+## Assembly files (only if JLCPCB assembles the board)
+
+| File | Contents |
+|------|----------|
+| `preamp_jlcpcb_bom.csv` | BOM: Comment, Designator, Footprint, Manufacturer, Manufacturer Part, LCSC Part # |
+| `preamp_jlcpcb_cpl.csv` | Pick and place (CPL): Designator, Mid X, Mid Y, Layer, Rotation. 23 parts (all but J2), top side |
+| `preamp-pos.csv` | KiCad's own position export, the CPL's source |
+| `make_jlc_assembly.py` | Builds the two JLCPCB files from `preamp-pos.csv` and `../bom/bom.csv` |
+
+- **C1 and C3 are LCSC substitutes** (ROQANG C72477 / C72484, same value,
+  voltage and case size) because JLCPCB doesn't stock the Nichicon /
+  Panasonic parts.
+- **J2 (Neutrik NMJ4HCD2) is left out of both files** (`HAND_FIT` in the
+  script): LCSC doesn't stock it, so it is soldered by hand.
+- **LCSC Part # is otherwise empty.** JLCPCB matches lines by manufacturer part number
+  when you upload; check each match, and pick an LCSC equivalent where the
+  exact part isn't stocked. "Basic" parts avoid the extended-part setup fee.
+- **Check rotations in JLCPCB's placement preview.** KiCad's and JLCPCB's
+  footprint zero orientations differ for some packages (SOIC-8, SMA diode,
+  electrolytics, trimmer). Fix pin 1 / polarity there before ordering.
+- J1, J2, J3 and RV1 are through-hole. JLCPCB can fit them (extra cost), or
+  untick them in the BOM step and solder them by hand.
+- Coordinates are KiCad's absolute positions (Y negative), the same origin as
+  the Gerbers, which JLCPCB's tool accepts.
+
 ## Silkscreen note
 
 The footprint outlines (0.12 mm lines) and reference designators (0.8 mm
@@ -66,6 +91,16 @@ kicad-cli pcb export gerbers --layers F.Cu,In1.Cu,In2.Cu,B.Cu,F.Mask,B.Mask,F.Si
 
 ```bash
 kicad-cli pcb export drill --format excellon --excellon-units mm --excellon-zeros-format decimal --excellon-oval-format alternate --excellon-separate-th --generate-map --map-format gerberx2 -o fab/gerbers/ preamp.kicad_pcb
+```
+
+Assembly files (after any BOM or placement change):
+
+```bash
+kicad-cli pcb export pos --format csv --units mm --side both -o fab/preamp-pos.csv preamp.kicad_pcb
+```
+
+```bash
+cd fab && python make_jlc_assembly.py
 ```
 
 Then zip the contents of `fab/gerbers` (files at the top level of the zip,
