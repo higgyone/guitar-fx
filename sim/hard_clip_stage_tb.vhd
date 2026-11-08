@@ -5,7 +5,8 @@
 -- expected value. Latency-tolerant (any pipeline depth up to
 -- timeout_cycles); reports the measured latency.
 --
--- Number formats: sample_in / sample_out / threshold are Q1.23, written here
+-- Number formats: sample_in / sample_out are Q1.23, threshold is Q0.23
+-- (unsigned, 23 bits: same scale, no sign bit), all written here
 -- as integers k = value * 2**23.
 --   expected = +threshold  if sample >  +threshold
 --              -threshold  if sample <  -threshold
@@ -42,11 +43,11 @@ architecture sim of hard_clip_stage_tb is
     constant sample_max : integer := 2 ** 23 - 1;
     constant sample_min : integer := -(2 ** 23);
 
-    signal clk              : std_logic           := '0';
-    signal reset            : std_logic           := '1';
-    signal sample_in        : signed(23 downto 0) := (others => '0');
-    signal sample_in_valid  : std_logic           := '0';
-    signal threshold        : signed(23 downto 0) := (others => '0');
+    signal clk              : std_logic             := '0';
+    signal reset            : std_logic             := '1';
+    signal sample_in        : signed(23 downto 0)   := (others => '0');
+    signal sample_in_valid  : std_logic             := '0';
+    signal threshold        : unsigned(22 downto 0) := (others => '0');
     signal sample_out       : signed(23 downto 0);
     signal sample_out_valid : std_logic;
 
@@ -67,7 +68,7 @@ begin
 
     stimulus : process is
 
-        -- Sends sample x with threshold t, waits for the output, checks it.
+        -- Sends sample x with threshold t (>= 0), waits for the output, checks it.
         -- All three are Q1.23 integer forms.
 
         procedure check_sample (
@@ -84,7 +85,7 @@ begin
             -- Present the sample with a one-clock valid pulse.
             wait until rising_edge(clk);
             sample_in       <= to_signed(x, sample_in'length);
-            threshold       <= to_signed(t, threshold'length);
+            threshold       <= to_unsigned(t, threshold'length);
             sample_in_valid <= '1';
             wait until rising_edge(clk);
             sample_in_valid <= '0';

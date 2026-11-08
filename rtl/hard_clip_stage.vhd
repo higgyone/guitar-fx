@@ -4,10 +4,11 @@
 -- Put a gain_stage (drive) in front to push the signal into the clip.
 --
 --   sample_in  : Q1.23 (range -1.0 to +1.0 - 2^-23)
---   threshold  : Q1.23, must be POSITIVE (0 .. 0x7FFFFF). 0 clips every
---                sample to 0. A negative value is wrong: e.g. 0x800000
---                (-1.0) negates to itself in 24 bits, so -threshold is also
---                -1.0 and every sample comes out as -1.0.
+--   threshold  : Q0.23 unsigned (0 .. 1.0 - 2^-23), same scale as Q1.23
+--                but no sign bit. The type makes a negative threshold
+--                impossible; inside it is widened to a positive 24-bit
+--                signed ('0' on top), so the largest, 0x7FFFFF, negates
+--                safely to -0x7FFFFF. 0 clips every sample to 0.
 --   sample_out : Q1.23, clipped
 --
 -- Latency: 1 clock. sample_out_valid pulses for one clock, one clock after
@@ -25,7 +26,7 @@ entity hard_clip_stage is
         reset            : in    std_logic;
         sample_in        : in    signed(23 downto 0);
         sample_in_valid  : in    std_logic;
-        threshold        : in    signed(23 downto 0); -- (Q1.23, positive)
+        threshold        : in    unsigned(22 downto 0); -- clip level, Q0.23
         sample_out       : out   signed(23 downto 0);
         sample_out_valid : out   std_logic
     );
@@ -33,7 +34,8 @@ end entity hard_clip_stage;
 
 architecture rtl of hard_clip_stage is
 
-    signal s_clipped : signed(23 downto 0) := (others => '0'); -- clipped sample, Q1.23
+    signal s_clipped   : signed(23 downto 0) := (others => '0'); -- clipped sample, Q1.23
+    signal s_threshold : signed(23 downto 0) := (others => '0'); -- threshold as Q1.23, always >= 0
 
 begin
 
@@ -47,10 +49,10 @@ begin
             if (reset = '1') then
                 s_clipped <= (others => '0');
             elsif (sample_in_valid = '1') then
-                if (sample_in > threshold) then
-                    s_clipped <= threshold;
-                elsif (sample_in < -threshold) then
-                    s_clipped <= -threshold;
+                if (sample_in > s_threshold) then
+                    s_clipped <= s_threshold;
+                elsif (sample_in < -s_threshold) then
+                    s_clipped <= -s_threshold;
                 else
                     s_clipped <= sample_in;
                 end if;
@@ -60,6 +62,9 @@ begin
         end if;
 
     end process hard_clip_proc;
+
+    -- Q0.23 unsigned -> Q1.23 signed: a '0' sign bit on top keeps it positive.
+    s_threshold <= signed('0' & threshold);
 
     sample_out <= s_clipped;
 
