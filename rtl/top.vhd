@@ -3,15 +3,23 @@
 -- Audio path (one sample per frame, 48 kHz, 24-bit, mono = left channel in,
 -- the same sample to both channels out):
 --
---   ad_sdout -> i2s_rx -+-> drive_gain_stage -> clip_stage -+-> bypass mux
---                       +---------------- bypass -----------+       |
---        da_sdin <- i2s_tx <- output_gain_stage <- soft_start <------+
+--   ad_sdout -> i2s_rx -+-> drive_gain_stage -> clip_stage -+-> distortion
+--                       +-> soft_clip ----------------------+   mux
+--                       +---------------- bypass -----------+    |
+--        da_sdin <- i2s_tx <- output_gain_stage <- soft_start <--+
 --
--- Distortion (effect #2): drive_gain_stage (a gain_stage, g_drive_gain)
--- pushes the signal into clip_stage (hard_clip_stage, g_threshold). SW0
--- (distortion_sw, synchronised to s_clk) picks the clipped signal ('1') or
--- the bypass ('0'). Effects go before soft_start, so its mute and fade-in
--- apply to the effected signal.
+-- Distortion (effect #2), two kinds:
+--   hard: drive_gain_stage (a gain_stage, g_drive_gain) pushes the signal
+--         into clip_stage (hard_clip_stage, g_threshold).
+--   soft: soft_clip (soft_clip_stage, a tanh lookup table, drive
+--         g_soft_drive). Fed straight from i2s_rx: a gain_stage in front
+--         would itself hard-clip at full scale.
+-- The mux picks one, from two switches (each synchronised to s_clk):
+--   SW0 distortion_sw = '0'            -> dry (SW1 ignored)
+--   SW0 = '1', SW1 soft_clip_sw = '1'  -> soft clip
+--   SW0 = '1', SW1 soft_clip_sw = '0'  -> hard clip
+-- Effects go before soft_start, so its mute and fade-in apply to the
+-- effected signal.
 --
 -- output_gain_stage sets the output level for whatever the DAC feeds. It
 -- is last in the chain, so effects see the guitar's real level whatever the
@@ -43,7 +51,10 @@
 -- reaches the drive at ~0.33 of full scale): a strum is driven ~5x (+14 dB)
 -- over the clip, and notes clean up as they decay below ~0.06. The output is
 -- then about the threshold, so SW0 up is quieter than SW0 down. x1.0 with
--- the maximum threshold (2**23 - 1) makes the distortion do nothing.
+-- the maximum threshold (2**23 - 1) makes the hard clip do nothing.
+-- g_soft_drive (real, k in tanh(k x) / tanh(k)) sets the soft clip:
+-- ~1 barely bends, 3 (default) overdrive, 10 near a hard clip. Quiet notes
+-- come out about k / tanh(k) louder, so the soft clip is louder than dry.
 --
 -- Test tone: g_test_tone = true sends tone_gen's 1 kHz, -20 dBFS sine
 -- straight to i2s_tx instead of the audio path, to check the DAC and line
@@ -61,12 +72,14 @@ entity top is
         g_gain         : integer range -2 ** 17 to 2 ** 17 - 1 := 1024;    -- 1/32 = -30.1 dB in Q3.15
         g_test_tone    : boolean                               := false;   -- true: 1 kHz test tone to the DAC
         g_threshold    : integer range 0 to 2 ** 23 - 1        := 2 ** 20; -- clip level, Q0.23; 2**20 = 0.125 (max 2**23 - 1 = no clipping)
-        g_drive_gain   : integer range -2 ** 17 to 2 ** 17 - 1 := 2 ** 16  -- drive before the clip, Q3.15; 2**16 = x2.0 (2**15 = x1.0)
+        g_drive_gain   : integer range -2 ** 17 to 2 ** 17 - 1 := 2 ** 16; -- drive before the clip, Q3.15; 2**16 = x2.0 (2**15 = x1.0)
+        g_soft_drive   : real                                  := 3.0      -- soft clip drive k (tanh), 3.0 = overdrive
     );
     port (
         clk100mhz     : in    std_logic; -- 100 MHz board clock (E3)
         reset_btn     : in    std_logic; -- BTN0, '1' while pressed
         distortion_sw : in    std_logic; -- SW0, '1' = distortion on
+        soft_clip_sw  : in    std_logic; -- SW1, '1' = soft clip, '0' = hard clip (when SW0 = '1')
         ad_sdout      : in    std_logic; -- Pmod AD SDOUT (ADC data in)
         led_locked    : out   std_logic; -- LD4: MMCM locked
         da_mclk       : out   std_logic; -- Pmod DA row: DAC clocks and data
@@ -107,16 +120,19 @@ architecture rtl of top is
     signal s_sclk_fall   : std_logic;
     signal s_frame_start : std_logic;
 
-    -- i2s_rx -> drive_gain_stage and the bypass mux.
+    -- i2s_rx -> drive_gain_stage, soft_clip and the distortion mux.
     signal s_rx_sample       : signed(23 downto 0);
     signal s_rx_sample_valid : std_logic;
     -- drive_gain_stage -> clip_stage.
     signal s_drive_sample       : signed(23 downto 0);
     signal s_drive_sample_valid : std_logic;
-    -- clip_stage -> bypass mux.
+    -- clip_stage -> the distortion mux.
     signal s_clip_sample       : signed(23 downto 0);
     signal s_clip_sample_valid : std_logic;
-    -- bypass mux -> soft_start.
+    -- soft_clip -> the distortion mux.
+    signal s_soft_clip_sample       : signed(23 downto 0);
+    signal s_soft_clip_sample_valid : std_logic;
+    -- The distortion mux -> soft_start.
     signal s_fx_sample       : signed(23 downto 0);
     signal s_fx_sample_valid : std_logic;
     -- soft_start -> output_gain_stage.
@@ -132,11 +148,16 @@ architecture rtl of top is
     signal s_tx_sample       : signed(23 downto 0);
     signal s_tx_sample_valid : std_logic;
 
-    -- Distortion switch (SW0) synchroniser. Starts at '0' (bypassed), the
-    -- plain state, until the real switch position arrives two clocks later.
+    -- Switch synchronisers (SW0, SW1). Both start at '0' (dry; hard clip
+    -- selected), the plain state, until the real switch positions arrive
+    -- two clocks later.
     signal s_distortion_raw  : std_logic;        -- distortion_sw as read (not on s_clk)
     signal s_distortion_meta : std_logic := '0'; -- FF1: may go metastable
-    signal s_distortion      : std_logic := '0'; -- FF2: clean switch state, '1' = distortion on
+    signal s_distortion      : std_logic := '0'; -- FF2: clean SW0, '1' = distortion on
+
+    signal s_soft_select_raw  : std_logic;        -- soft_clip_sw as read (not on s_clk)
+    signal s_soft_select_meta : std_logic := '0'; -- FF1: may go metastable
+    signal s_soft_select      : std_logic := '0'; -- FF2: clean SW1, '1' = soft clip, '0' = hard
 
 begin
 
@@ -208,6 +229,21 @@ begin
             sample_out_valid => s_clip_sample_valid
         );
 
+    -- Soft clip: tanh lookup table, drive g_soft_drive. Fed straight from
+    -- i2s_rx (no gain_stage in front, which would hard-clip at full scale).
+    soft_clip : entity work.soft_clip_stage
+        generic map (
+            g_drive => g_soft_drive
+        )
+        port map (
+            clk              => s_clk,
+            reset            => s_reset,
+            sample_in        => s_rx_sample,
+            sample_in_valid  => s_rx_sample_valid,
+            sample_out       => s_soft_clip_sample,
+            sample_out_valid => s_soft_clip_sample_valid
+        );
+
     soft_start_stage : entity work.soft_start
         generic map (
             g_mute_samples => g_mute_samples,
@@ -262,30 +298,40 @@ begin
 
     end process reset_sync;
 
-    -- Distortion switch synchroniser: two flip-flops on s_clk, as reset_sync.
-    -- The slide switch is not on s_clk, so it can change at any moment.
+    -- Switch synchronisers (SW0, SW1): two flip-flops each on s_clk, as
+    -- reset_sync. The slide switches are not on s_clk, so they can change at
+    -- any moment.
     distortion_sync : process (s_clk) is
     begin
 
         if rising_edge(s_clk) then
-            s_distortion_meta <= s_distortion_raw;  -- FF1 takes the raw input
-            s_distortion      <= s_distortion_meta; -- FF2 (clean)
+            s_distortion_meta <= s_distortion_raw;    -- FF1 takes the raw input
+            s_distortion      <= s_distortion_meta;   -- FF2 (clean)
+
+            s_soft_select_meta <= s_soft_select_raw;  -- FF1 takes the raw input
+            s_soft_select      <= s_soft_select_meta; -- FF2 (clean)
         end if;
 
     end process distortion_sync;
 
-    s_distortion_raw <= distortion_sw;
-    s_reset_raw      <= reset_btn or not s_locked;
-    led_locked       <= s_locked;
+    s_distortion_raw  <= distortion_sw;
+    s_soft_select_raw <= soft_clip_sw;
+    s_reset_raw       <= reset_btn or not s_locked;
+    led_locked        <= s_locked;
 
-    -- Bypass mux: SW0 picks the distorted signal (clip_stage, '1') or the
-    -- dry one straight from i2s_rx ('0'). Sample and valid switch together.
-    -- The distorted path is 2 clocks later than the dry one; that's fine,
-    -- soft_start only acts on valid.
-    s_fx_sample       <= s_clip_sample when s_distortion = '1' else
-                         s_rx_sample;
-    s_fx_sample_valid <= s_clip_sample_valid when s_distortion = '1' else
-                         s_rx_sample_valid;
+    -- Distortion mux: SW0 off -> dry, straight from i2s_rx (SW1 ignored);
+    -- SW0 on -> SW1 picks soft clip ('1') or hard clip ('0'). Sample and
+    -- valid switch together. The paths have different delays (hard 2
+    -- clocks, soft 1, dry 0); that's fine, soft_start only acts on valid.
+    -- The last branch has no condition, so every switch setting has an
+    -- answer (no latch).
+    s_fx_sample <= s_rx_sample when s_distortion = '0' else         -- SW0 off: dry
+                   s_soft_clip_sample when s_soft_select = '1' else -- SW1 on: soft clip
+                   s_clip_sample;                                   -- SW1 off: hard clip
+
+    s_fx_sample_valid <= s_rx_sample_valid when s_distortion = '0' else
+                         s_soft_clip_sample_valid when s_soft_select = '1' else
+                         s_clip_sample_valid;
 
     -- One set of I2S clocks for both Pmod rows.
     da_mclk <= s_mclk;
