@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Silkscreen logo for the guitar-fx preamp: an electric guitar plugged into a
+  small combo amp, with a lightning bolt between them, through the cable.
+
+  Drawn at 26 x 16 mm (1 unit = 0.1 mm). Lines are 0.25 mm wide, above the
+  usual 0.15 mm silkscreen minimum. Lines stop 0.5 mm short of the bolt, so
+  the bolt reads as a solid shape and does not merge with them.
+
+  For KiCad, use guitar_amp_bolt.png with the Image Converter
+  (bitmap2component) -> Footprint, F.Silkscreen, at 26 mm wide.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="26mm" height="16mm" viewBox="0 0 260 160">
+  <defs>
+    <path id="bolt" d="M140,4 L160,4 L140,66 L156,66 L112,156 L124,84 L108,84 Z"/>
+    <!-- Everything except the bolt and a 0.5 mm gap round it -->
+    <mask id="gap" maskUnits="userSpaceOnUse" x="0" y="0" width="260" height="160">
+      <rect width="260" height="160" fill="white"/>
+      <use xlink:href="#bolt" fill="black" stroke="black" stroke-width="10" stroke-linejoin="round"/>
+    </mask>
+  </defs>
+
+  <g mask="url(#gap)" fill="none" stroke="black" stroke-width="2.5"
+     stroke-linecap="round" stroke-linejoin="round">
+
+    <!-- Guitar: drawn upright about its body centre, then leaned over -->
+    <g transform="translate(66,94) rotate(-30) scale(0.9)">
+      <!-- body (double cutaway) -->
+      <path d="M-8,-30 C-14,-38 -28,-36 -28,-24 C-28,-14 -20,-10 -24,0
+               C-30,14 -34,30 -20,38 C-8,45 8,45 20,38 C34,30 30,14 24,2
+               C20,-6 26,-16 26,-26 C26,-34 16,-38 10,-30 C6,-25 -4,-25 -8,-30 Z"/>
+      <!-- neck and headstock -->
+      <path d="M-4,-27 L-4,-90 M4,-27 L4,-90"/>
+      <path d="M-5,-90 L-8,-108 Q0,-114 8,-108 L5,-90 Z"/>
+      <!-- pickups and bridge -->
+      <rect x="-10" y="-10" width="20" height="5" rx="1"/>
+      <rect x="-10" y="3" width="20" height="5" rx="1"/>
+      <path d="M-9,18 L9,18"/>
+      <!-- control knobs -->
+      <circle cx="16" cy="22" r="3.5"/>
+      <circle cx="11" cy="31" r="3.5"/>
+    </g>
+
+    <!-- Cable from the guitar's jack to the amp's input -->
+    <path d="M99,104 C122,124 140,58 171,52"/>
+
+    <!-- Amp: cabinet, handle, control panel, speaker -->
+    <g transform="translate(35,0)">
+      <rect x="128" y="36" width="88" height="106" rx="5"/>
+      <path d="M156,36 L156,29 Q156,25 160,25 L184,25 Q188,25 188,29 L188,36"/>
+      <path d="M128,64 L216,64"/>
+      <circle cx="138" cy="50" r="2.5"/>
+      <circle cx="164" cy="50" r="4"/>
+      <circle cx="180" cy="50" r="4"/>
+      <circle cx="196" cy="50" r="4"/>
+      <circle cx="172" cy="103" r="28"/>
+      <circle cx="172" cy="103" r="10"/>
+    </g>
+  </g>
+
+  <!-- The bolt, solid -->
+  <use xlink:href="#bolt" fill="black"/>
+</svg>

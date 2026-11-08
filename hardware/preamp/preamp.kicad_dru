@@ -1,0 +1,8 @@
+(version 1)
+
+# The KiCad library footprint for J3 (CUI SJ1-3523N) draws its own board-edge
+# notch, and its own silkscreen outline of the plug nose crosses that notch.
+# Let J3's silkscreen touch the edge; everything else keeps the board rule.
+(rule "J3 nose silk over its own edge notch"
+    (condition "A.memberOfFootprint('J3') && B.memberOfFootprint('J3')")
+    (constraint silk_clearance (min -10mm)))

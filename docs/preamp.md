@@ -1,6 +1,56 @@
 # Guitar preamp / buffer
 
-Status: **requirements draft.** Design not started.
+Status: **schematic first draft** —
+[hardware/preamp/preamp.kicad_sch](../hardware/preamp/preamp.kicad_sch)
+(KiCad 10). Op-amp: **TI OPA1642AID** (dual JFET-input, SOIC-8). KiCad
+has no OPA1642 symbol, so U1 uses the OPA1656ID symbol with the value
+OPA1642AID: same standard dual SOIC-8 pinout.
+
+Schematic notes (additions / deviations from the text below):
+- R4 2M2 input pull-down on the jack side of C_in (no click on plug-in).
+- R8 100k on the jack side of C_out (holds it at 0 V when unplugged).
+- C_in (C4) is a 10 nF **C0G** ceramic in 0402, not film (SMD film starts
+  ~1206). 33 nF C0G is hard to get in 0603 and not made in 0402; with the
+  2M2 bias resistor 10 nF still gives 7.2 Hz (−0.03 dB at 82 Hz).
+- Small R/C are 0603 with KiCad's hand-solder pads. Electrolytics are SMD
+  cans (C1 6.3x7.7, C3/C5/C6 4x5.4). C5/C6 carry audio, so they stay
+  electrolytic rather than class-2 ceramic (distortion, microphonics).
+- D1 is an SS14 (SMA), the SMD equivalent of the 1N5817.
+- RV1 is a Bourns 3296W multi-turn trimmer, adjusted from the top.
+- Prototype (no enclosure yet): all three jacks are PCB-mount.
+  J1 CUI PJ-102AH (pad 1 = centre = GND; pad 3 switch unused),
+  J2 Neutrik NMJ4HCD2 (switch contacts unused), J3 CUI SJ1-3523N.
+  Revisit for the enclosure (panel-mount jacks wired to pads).
+- 3D models: KiCad 10 ships without the J1 / J2 STEP files, so the project
+  library `hardware/preamp/preamp.pretty` (table `fp-lib-table`) holds copies
+  of those two footprints pointing at `3d/` (`${KIPRJMOD}`). Sources: CUI
+  PJ-102AH (CUI's SolidWorks model, via github.com/KonevDN/Fork-Electronics-Library)
+  and Neutrik NMJ4HCD2 (Neutrik's download). Alignment checked by rendering.
+- Line out drives the 3.5 mm tip (left channel) only; ring not connected.
+- **VBias ≈ 2.55–2.6 V, not mid-supply** (R2 220k / R3 100k). The OPA1642's
+  input works only up to V+ − 3.5 V (datasheet p7) ≈ 4.65 V at 8.15 V. At
+  mid-supply (4.08 V) that left just 0.58 V for guitar peaks above bias at the
+  (+) input. See "Vbias" for why 2.6 V rather than the first draft's 2.2 V.
+- **R5 = 2M2** (bias resistor). With the 2M2 pull-down R4 the guitar sees
+  R4 ∥ R5 = 1.1 MΩ (was 690 kΩ with 1 MΩ, below R1). C_in corner 7.2 Hz.
+- **Review fixes (2026-11-01, independent design review):**
+  - **R6 = 0 Ω link** → G = 1 … 6 (was 1.47 … 6.47), so a hot pickup (up to
+    the ADC's 1.875 V peak) can be run at unity without clipping. Fit a
+    resistor in R6 to raise the minimum gain if the pot is too coarse.
+  - **C7 100 pF C0G across R6 + RV1** (U1 pin 2 to pin 1): the input
+    capacitance (~6 pF + pads) with Rf ∥ Rg (up to 8.5 kΩ) put a pole at
+    ~1.8 MHz, right at the loop crossover at G = 6 (11 MHz / 6). C7 rolls the
+    gain back to 1 above ~32 kHz (at max Rf), so the loop stays stable.
+  - **R10 1k in series with U1 pin 3** (C4 → R10 → pin 3, R5 on the op-amp
+    side) and **C8 100 pF C0G from the jack tip to GND**: RF filter (AM pickup
+    by the JFET input) and current limit for ESD / overdrive into the input
+    clamp diodes (datasheet: limit to 10 mA). 100 pF adds little to the
+    cable's 300–1000 pF, so the pickup's resonance barely moves. R10 noise
+    (4 nV/√Hz) is below the op-amp's.
+  - Voltage ratings now on the schematic: C2 100n X7R 50 V, C4 C0G 50 V.
+- **R9 100 Ω** in series after the feedback tap, before C_out: isolates the
+  cable capacitance from the op-amp output and limits plug-in current.
+  Costs ≈ 0.1 dB into the Pmod's 10.2 kΩ.
 
 Purpose: turn a passive guitar pickup signal into a line-level signal for the
 Pmod I2S2 line input, without loading the pickups.
@@ -104,11 +154,33 @@ Cap values (target f ≈ 5 Hz, round **up** — bigger C = lower cutoff):
 
 | Part | Value | Cutoff | Notes |
 |------|-------|--------|-------|
-| C_in | 33 nF film | 4.8 Hz (1 MΩ) | non-polar |
+| C_in | 10 nF C0G (0402) | 7.2 Hz with the 2M2 used (first draft: 33 nF, 2.2 Hz) | non-polar |
 | C_g | 3.3 µF electrolytic | 4.8 Hz (10 kΩ) | + to Rg (4.5 V), − to GND |
 | C_out | 3.3 µF electrolytic | 4.7 Hz (10.2 kΩ Pmod) | + to op-amp out (4.5 V), − to Pmod (0 V) |
 
 ## Vbias
+
+As built (schematic R2 / R3 / C3, buffered by U1B):
+
+    VCC 8.15 V ── R2 220k ──┬── R3 100k ── GND
+                            ├── U1B follower → Vbias ≈ 2.55 V → R5 2M2
+                            C3 10 µF (+ to node) ── GND
+
+- **Why not mid-supply:** the OPA1642 (JFET input) only works with its
+  inputs between V− − 0.1 V and V+ − 3.5 V, i.e. 0 … 4.65 V here. The (+)
+  input carries the guitar signal on top of Vbias, so Vbias goes in the
+  lower part of *that* range, not the middle of the supply.
+- **Why 2.55 V and not 2.2 V (centre of the input range):** with gain > 1 the
+  output carries G × the input, so the output's downward swing (to ≈ 0.2 V
+  above GND into 10 k) is the real limit, not the input. At 2.2 V that left
+  only ≈ 0.2 V beyond ADC full scale. Raising Vbias trades input room above
+  bias (which only matters at G ≈ 1) for output room below it.
+- Vbias = 8.15 × 100 / 320 = 2.55 V (2.63 V at the more likely 8.4 V).
+  Input room +2.10 / −2.65 V; output swing ≈ −2.35 V / +5.4 V. The ADC
+  (1.875 V peak) now clips before the op-amp does at every gain setting.
+- Filter source resistance R2 ∥ R3 = 69 kΩ, × 10 µF → 0.23 Hz.
+
+The original mid-supply working, kept for the reasoning:
 
     +9 V ── R1 100k ──┬── R2 100k ── GND
                       ├── Vbias 4.5 V → 1 MΩ input bias resistor
@@ -137,24 +209,26 @@ Pedal standard: **9 V DC, 2.1 mm barrel, centre negative** (Boss). Bench
 supply for development.
 
     DC jack ──|>|── R_s 100 Ω ──┬────────────┬── V+ (op-amp, Vbias divider)
-            D1 1N5817           C_s 470 µF   100 nF ceramic at op-amp pin
+            D1 SS14             C_s 100 µF   100 nF ceramic at op-amp pin
                                 │            │
     GND ────────────────────────┴────────────┴──
 
 - D1 series Schottky: reverse-polarity block, ≈ 0.35 V drop. (Alternatives:
   shunt diode — harsh on supply; P-MOSFET — ≈ 0 V drop, more parts.)
-- R_s / C_s low-pass: 470 µF → f ≈ 3.4 Hz, 100 Hz ripple ≈ −29 dB.
-  (100 µF would give 16 Hz, only −16 dB.)
+- R_s / C_s low-pass: 100 µF → f ≈ 16 Hz, 100 Hz ripple ≈ −16 dB. Enough:
+  the op-amp's own supply rejection does most of the work, and Vbias has its
+  own filter (R2 ∥ R3 = 69 k with C3 10 µF → 0.23 Hz). 470 µF (3.4 Hz,
+  −29 dB) was dropped as physically too big for no audible gain.
 - 100 nF ceramic as close as possible to the op-amp supply pin (HF decoupling).
 - Caps rated ≥ 25 V (≥ 2× supply; survives an 18 V adaptor).
 - Supply at circuit ≈ 9 − 0.35 − (5 mA × 100 Ω) = **8.15 V** (check op-amp
-  quiescent current). Vbias = half = 4.075 V automatically (ratio divider).
-- Swing ≈ ±4 V around Vbias (less without RRO): covers 0.94 V target and the
-  3.2 V worst case at max gain.
+  quiescent current: OPA1642 2 × 1.8 mA typ). The review estimates
+  **≈ 8.4 V**: the SS14 drops ≈ 0.25 V at 4 mA, not 0.35 V. Vbias =
+  0.3125 × VCC ≈ 2.55–2.6 V (ratio divider, tracks the supply).
+- Output swing ≈ −2.35 V below Vbias (RRO, limited by the bottom rail):
+  covers the 0.94 V target and the 1.875 V ADC full scale with ≈ 0.5 V spare.
 - Ripple defence in depth: supply RC (−29 dB) → Vbias RC (−50 dB, the
   critical one) → op-amp PSRR (typ. 80–120 dB at 100 Hz).
-
-Still to do: op-amp choice.
 
 ## Mains hum (50 Hz UK)
 
@@ -177,7 +251,9 @@ power. Residual hum → handled digitally (noise gate; optional IIR notch at
 - Gain needed = 0.94 / guitar peak → ≈ 1.9 (0.5 V) … 3.1 (0.3 V) … 4.7 (0.2 V).
 - Design: adjustable **G ≈ 1.5 … 5**, non-inverting, `G = 1 + Rf/Rg`,
   Rf = fixed + trim pot.
-- **Chosen: Rg = 10 kΩ, Rf = 4.7 kΩ + 50 kΩ trim pot → G = 1.47 … 6.47.**
+- **Chosen: Rg = 10 kΩ, Rf = R6 (0 Ω link) + 50 kΩ trim pot → G = 1 … 6.**
+  (First draft had R6 4.7 kΩ, G = 1.47 … 6.47: a 1.3 V-peak pickup clipped
+  even at minimum gain.) C7 100 pF across Rf limits the bandwidth (stability).
   Top of range can overdrive the ADC with hot pickups (clips, no damage:
   Pmod R7 5.1 kΩ limits current). Set the pot on the bench with the scope.
 - P7 Op-amp choice — see below.
@@ -213,7 +289,132 @@ ADI ADA4625. Fill in the table:
 Must run from ≈ 8 V single supply (after D1 + R_s). Dual package: one half
 gain stage, one half Vbias buffer.
 
-## Also needed: output side
+**Chosen: OPA1642AID.** JFET input (pA bias current, fine with the 1 MΩ
+bias resistor), 4.5–36 V supply, rail-to-rail output, ~5 nV/√Hz,
+~1.8 mA per amp. Unity-gain stable for the Vbias follower.
+Drop-in alternatives (same pinout, no other changes): OPA1652AID (FET,
+4.5–36 V), TLC2272CDR (CMOS, 16 V max, so not for an 18 V adaptor).
 
-The I2S2 line out is line level. A guitar amp input expects instrument level.
-Plan an attenuator (or use the amp FX return) before playing live.
+## Output side (Pmod line out → amp)
+
+Decided 2026-11-01: **no attenuator for the prototype.** The Pmod line out
+(≈ 1.07 V peak full scale, 470 Ω source) is already close to guitar level:
+with the preamp trimmed to −6 dBFS the amp sees ≈ 0.5 V peak, about +3 dB over
+the bare guitar. The amp has no FX loop, so it goes into the front input.
+- Adapter lead: 3.5 mm tip + sleeve → 6.35 mm TS, ring **not** connected
+  (a TRS→TS adapter shorts the right DAC output to ground, below its 3 kΩ
+  minimum load). FPGA sends zeros on the right channel.
+- Match the bypass level digitally (output volume block, effect #1).
+- Hum on the bench is most likely a ground loop (Arty on an earthed PC's USB
+  + earthed amp): try the laptop on battery first.
+- For an enclosure later: a switchable 0 / −10 / −20 dB L-pad after the Pmod
+  (R_s 6.8k / R_p 3.3k, or 9.1k / 1k; keep R_s + R_p ≥ 4.3 kΩ).
+
+## PCB (placement rev 2, 2026-11-07)
+
+[hardware/preamp/preamp.kicad_pcb](../hardware/preamp/preamp.kicad_pcb):
+72 × 54 mm, 4 layers, M3 holes in the corners. **Routed** (2026-11-07): every
+track 0.25 mm (signal) or 0.5 mm (power), DRC clean with no exclusions,
+guitar / amp / lightning logo on the top silkscreen
+([hardware/preamp/art](../hardware/preamp/art)). Fab files and order
+settings: see "Manufacture" below.
+
+| Layer | Use |
+|-------|-----|
+| L1 F.Cu | All parts, signal tracks, spare area poured GND |
+| L2 In1.Cu "GND" | Solid GND plane |
+| L3 In2.Cu "PWR" | Solid **GND** plane (layer name kept) |
+| L4 B.Cu | VCC pour (priority 1) from C1 to U1, rest poured GND |
+
+Placement and planes changed on 2026-11-07, after an SI/PI review:
+- **U1 moved towards J2**, then spaced out by hand for soldering-iron access
+  (U1 at 146.6, 98.7): the 1.1 MΩ input node (J2 tip → R4/C8 → C4 → R10 →
+  pin 3) is ~24 mm (was ~30 mm). The output (low impedance) takes the long
+  run to J3. If hum or RF pickup shows up, move C8/R4 to J2's tip first.
+- **Pin 2 node shortened:** C7 across pins 1–2, R7 vertical beside it, RV1
+  (rotated 180°, so its pin-2 pads face left and its R6 pad faces right)
+  just above U1, R6 / R9 to the right of RV1, C5 above RV1.
+- **R5** runs on L1 under U1's body, between the pad rows: pin 3 → R5.1 down
+  one side, R5.2 → pins 6/7 up the other. No jumper on L4.
+- **Both inner planes are GND.** VCC feeds only U1 pin 8, C2 and R2 (~4 mA),
+  so it doesn't need a plane. It is an L-shaped **L4 pour**: across the top
+  behind R1/C1 (joined to an L1 VCC pour there by a via farm) and down a
+  strip at x 152–159, right of U1, to C2 and R2 (VCC vias at C2.1 and R2.1).
+  Keep its left edge at x ≥ 152: further left it runs under U1, R10 and
+  RV1, whose through-hole pads are on the pin 2 node. Pin 8 → C2.1 is a short L1 track, so C2
+  sits between the supply and the pin. The pour stays clear of the input
+  area. Two GND planes shield better (also the THT pins of J2 and RV1) and
+  give L4 a GND reference.
+- **L1 pour is GND** (was VCC): no VCC copper next to the input node, and no
+  VCC–GND solder bridges on hand-soldered 0603s.
+- H4 had a stray VCC net on its (non-plated) pad; cleared.
+
+Superseded notes from the first draft (2026-11-01) follow, kept for the
+reasoning; where they disagree with the list above, the list wins.
+
+Stackup (1.6 mm): 1 oz outer, 0.1 mm prepreg L1–L2, 1.24 mm core, 0.1 mm
+prepreg L3–L4. Set the real figures from the fab's 4-layer stackup when
+ordering.
+
+- Why this order: every L1 track sits 0.1 mm over unbroken GND, so its
+  return current runs directly underneath (smallest loop, least hum pickup)
+  and L2 shields L1 from the VCC plane. Don't route on L2 or cut it.
+- The L2–L3 core is thick, so plane-to-plane capacitance is small; C2
+  (100 nF at U1 pin 8) and C1 still do the decoupling.
+- L4 tracks reference the L3 VCC plane: keep L4 for short, non-critical runs.
+- Fanout: every SMD GND / VCC pad has a 0.4 mm track to a via (redone
+  2026-11-07 after the move; VCC vias at C2.1 and R2.1 land in the L4 VCC
+  pour). THT GND pads connect to every GND layer. 23 GND stitching vias
+  along the board edges tie the L1 / L4 pours to the planes.
+- The L1 VCC pour carries DC only, but it is copper next to the 1.1 MΩ input
+  node (J2 tip → C4 → R10 → U1 pin 3 and R5). If that node picks up hum or
+  supply noise, add a rule area on L1 that keeps the VCC pour away from it, or
+  surround it with a GND guard track. The review also notes every L1 GND pad
+  sits inside VCC copper (more chance of a VCC–GND solder bridge on a
+  hand-soldered 0603); a GND pour on L1 would avoid both.
+- Review fixes placed (2026-11-01): C8 beside J2's tip pad (GND via below
+  it), C4 now 0402 in the same spot, R10 next to U1 pin 3 (R5 moved 1.5 mm
+  right for it), C7 beside U1 pins 1–2. Keep the C4 → R10 → pin 3 track away
+  from the pin 1 / R6 output track.
+- Mounting holes H1–H4 (M3, non-plated) are **isolated from the chassis**:
+  a ⌀9 mm rule area on all four copper layers keeps out pours, tracks and
+  vias (M3 washer DIN 125 is 7 mm OD, so 1 mm margin; also clears a nylon
+  standoff's hex). Don't rely on solder mask under a washer.
+- `preamp.kicad_dru`: J3's library footprint draws its own edge notch and its
+  silkscreen crosses it; a DRC rule allows that for J3 only.
+
+## Manufacture (JLCPCB, 2026-11-07)
+
+Upload [hardware/preamp/fab/preamp_jlcpcb_gerbers.zip](../hardware/preamp/fab/preamp_jlcpcb_gerbers.zip);
+the order settings and how to regenerate the files are in
+[hardware/preamp/fab/README.md](../hardware/preamp/fab/README.md).
+
+The board's stackup is now JLCPCB's **JLC04161H-3313** (it replaces the
+generic figures in the first-draft notes above):
+
+| Layer | Thickness | Notes |
+|-------|-----------|-------|
+| L1 F.Cu | 0.035 mm (1 oz) | |
+| prepreg 3313 | 0.0994 mm | εr 4.1 |
+| L2 In1.Cu | 0.0152 mm (0.5 oz) | |
+| core | 1.265 mm | εr 4.6 |
+| L3 In2.Cu | 0.0152 mm (0.5 oz) | |
+| prepreg 3313 | 0.0994 mm | εr 4.1 |
+| L4 B.Cu | 0.035 mm (1 oz) | |
+
+Finish ENIG (flat pads for hand-soldering the 0402s and the SOIC-8).
+
+**Footprints checked against the datasheets (2026-11-07):** land patterns,
+hole sizes, pin positions and polarity of every part match. One fix: J3
+(SJ1-3523N) now uses a project copy of KiCad's footprint
+(`preamp.pretty/Jack_3.5mm_CUI_SJ1-3523N_Horizontal`) with the solder slots
+widened from 0.4 × 1.4 mm to Same Sky's recommended **1.5 × 0.8 mm** (pads
+2.4 × 1.5 mm); the tabs are 0.2 mm thick, so 0.4 mm was too tight once plated.
+Notes, no change made:
+- C3 (EEE-FK1E100R) is really 4 × 5.8 mm; `CP_Elec_4x5.4` has the same pads,
+  only the 3D height is wrong.
+- J3's ring is unconnected: the line out is mono on the tip, so a stereo lead
+  carries it on the left channel only.
+- J2's front face sits 3.65 mm inside the board edge.
+- The 0402 / 0603 lands are KiCad's standard hand-solder pads, not checked
+  against the Murata / Yageo drawings.
