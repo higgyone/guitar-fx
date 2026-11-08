@@ -4,6 +4,9 @@
 --   clk100mhz  100 MHz oscillator; the Clocking Wizard makes the 98.304 MHz
 --              system clock from it (in Vivado's simulation the real IP model)
 --   reset_btn  BTN0, pressed once in the middle of the run
+--   distortion_sw  SW0, held at '0' (bypass): drive + clip are skipped, so
+--              pass-through stays bit-exact (clip_stage at its maximum
+--              threshold would still move -1.0 by one LSB)
 --   ADC model  CS5343 on ad_mclk / ad_lrck / ad_sclk / ad_sdout: drives sdout
 --              20 ns after each ad_sclk falling edge (I2S, as in i2s_rx_tb)
 --   DAC model  CS4344 on da_mclk / da_lrck / da_sclk / da_sdin: reads sdin on
@@ -67,17 +70,18 @@ architecture sim of top_tb is
 
     end function test_sample;
 
-    signal clk100mhz  : std_logic := '0';
-    signal reset_btn  : std_logic := '0';
-    signal ad_sdout   : std_logic := '0';
-    signal led_locked : std_logic;
-    signal da_mclk    : std_logic;
-    signal da_lrck    : std_logic;
-    signal da_sclk    : std_logic;
-    signal da_sdin    : std_logic;
-    signal ad_mclk    : std_logic;
-    signal ad_lrck    : std_logic;
-    signal ad_sclk    : std_logic;
+    signal clk100mhz     : std_logic := '0';
+    signal reset_btn     : std_logic := '0';
+    signal distortion_sw : std_logic := '0'; -- SW0: bypass, so the chain must pass the ADC exactly
+    signal ad_sdout      : std_logic := '0';
+    signal led_locked    : std_logic;
+    signal da_mclk       : std_logic;
+    signal da_lrck       : std_logic;
+    signal da_sclk       : std_logic;
+    signal da_sdin       : std_logic;
+    signal ad_mclk       : std_logic;
+    signal ad_lrck       : std_logic;
+    signal ad_sclk       : std_logic;
 
     type t_sent is array (0 to c_frames + 2) of integer;
 
@@ -97,17 +101,18 @@ begin
             g_test_tone    => false
         )
         port map (
-            clk100mhz  => clk100mhz,
-            reset_btn  => reset_btn,
-            ad_sdout   => ad_sdout,
-            led_locked => led_locked,
-            da_mclk    => da_mclk,
-            da_lrck    => da_lrck,
-            da_sclk    => da_sclk,
-            da_sdin    => da_sdin,
-            ad_mclk    => ad_mclk,
-            ad_lrck    => ad_lrck,
-            ad_sclk    => ad_sclk
+            clk100mhz     => clk100mhz,
+            reset_btn     => reset_btn,
+            distortion_sw => distortion_sw,
+            ad_sdout      => ad_sdout,
+            led_locked    => led_locked,
+            da_mclk       => da_mclk,
+            da_lrck       => da_lrck,
+            da_sclk       => da_sclk,
+            da_sdin       => da_sdin,
+            ad_mclk       => ad_mclk,
+            ad_lrck       => ad_lrck,
+            ad_sclk       => ad_sclk
         );
 
     -- 1. The MMCM must lock; the button is pressed at frame c_press_at.
