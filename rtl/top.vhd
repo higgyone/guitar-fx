@@ -38,8 +38,12 @@
 -- top_tb makes them tiny). g_gain is output_gain_stage's gain in Q3.15
 -- (1.0 = 32768): default 1024 = 1/32 = -30.1 dB, line level for the PC's
 -- USB mic input; top_tb uses 1.0 so it can check exact pass-through.
--- g_drive_gain (Q3.15) and g_threshold (Q0.23) set the distortion; the
--- defaults (x1.0, maximum) leave it doing nothing even when switched in.
+-- g_drive_gain (Q3.15) and g_threshold (Q0.23) set the distortion. Defaults
+-- x2.0 and 0.125, for this guitar through the preamp at G = 3 (a hard strum
+-- reaches the drive at ~0.33 of full scale): a strum is driven ~5x (+14 dB)
+-- over the clip, and notes clean up as they decay below ~0.06. The output is
+-- then about the threshold, so SW0 up is quieter than SW0 down. x1.0 with
+-- the maximum threshold (2**23 - 1) makes the distortion do nothing.
 --
 -- Test tone: g_test_tone = true sends tone_gen's 1 kHz, -20 dBFS sine
 -- straight to i2s_tx instead of the audio path, to check the DAC and line
@@ -52,12 +56,12 @@ library ieee;
 
 entity top is
     generic (
-        g_mute_samples : natural                               := 144000;      -- 3 s at 48 kHz
-        g_ramp_bits    : natural                               := 11;          -- 2,048-sample ramp
-        g_gain         : integer range -2 ** 17 to 2 ** 17 - 1 := 1024;        -- 1/32 = -30.1 dB in Q3.15
-        g_test_tone    : boolean                               := false;       -- true: 1 kHz test tone to the DAC
-        g_threshold    : integer range 0 to 2 ** 23 - 1        := 2 ** 23 - 1; -- clip level, Q0.23; max = no clipping
-        g_drive_gain   : integer range -2 ** 17 to 2 ** 17 - 1 := 32768        -- drive before the clip, Q3.15; 32768 = x1.0
+        g_mute_samples : natural                               := 144000;  -- 3 s at 48 kHz
+        g_ramp_bits    : natural                               := 11;      -- 2,048-sample ramp
+        g_gain         : integer range -2 ** 17 to 2 ** 17 - 1 := 1024;    -- 1/32 = -30.1 dB in Q3.15
+        g_test_tone    : boolean                               := false;   -- true: 1 kHz test tone to the DAC
+        g_threshold    : integer range 0 to 2 ** 23 - 1        := 2 ** 20; -- clip level, Q0.23; 2**20 = 0.125 (max 2**23 - 1 = no clipping)
+        g_drive_gain   : integer range -2 ** 17 to 2 ** 17 - 1 := 2 ** 16  -- drive before the clip, Q3.15; 2**16 = x2.0 (2**15 = x1.0)
     );
     port (
         clk100mhz     : in    std_logic; -- 100 MHz board clock (E3)
@@ -179,7 +183,7 @@ begin
         );
 
     -- Distortion, part 1, drive: a fixed gain (g_drive_gain) that pushes the
-    -- signal up into the clip. Default x1.0 (no change).
+    -- signal up into the clip. Default x2.0.
     drive_gain_stage : entity work.gain_stage
         port map (
             clk              => s_clk,
@@ -192,7 +196,7 @@ begin
         );
 
     -- Distortion, part 2, clip: flattens every sample beyond +/- g_threshold.
-    -- Default maximum (nothing clips).
+    -- Default 0.125.
     clip_stage : entity work.hard_clip_stage
         port map (
             clk              => s_clk,
