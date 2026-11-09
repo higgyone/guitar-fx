@@ -69,6 +69,10 @@ set_property -dict [list \
 # end instead of the default 1000 ns.
 set_property -name xsim.simulate.runtime -value all -objects [get_filesets sim_1]
 
+# Also write a .bin (the raw configuration image, no .bit header) with the
+# .bit, for programming into the Arty's QSPI flash so the board boots from it.
+set_property STEPS.WRITE_BITSTREAM.ARGS.BIN_FILE true [get_runs impl_1]
+
 # Top levels: 
 set_property top top [get_filesets sources_1]
 set_property top top_tb [get_filesets sim_1]
