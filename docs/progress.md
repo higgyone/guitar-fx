@@ -42,6 +42,28 @@ every session (either PC); update it at the end.**
   - ![clean vs hard vs soft](img/soft_vs_hard.png)
 - **Next:** try it with the guitar once the preamp boards arrive; maybe
   interpolate between table entries to remove the staircase.
+- **Interpolation** (2026-11-09, branch `effect-soft-clip-interp`): linear
+  interpolation between entries, `T(a) + ((T(a+1) - T(a)) * f) / 8192`
+  with f = bits 12..0; table now 1025 entries (entry 1024 = 2**23 - 1).
+  3-stage pipeline (dual-port ROM read, gap × f in a DSP, add + sign),
+  latency 3. No staircase, no dead zone below one step. TB 2064 samples
+  and all three `top_tb` modes pass. Routed WNS **+0.589 ns** (was +2.549).
+  - Bench (SW0 + SW1 up), against the staircase build: the gain is now
+    flat down to −42 dBFS in (−19.9 dB; the staircase lost 4.5 dB there to
+    the dead zone), and low-level THD halves (−42 dBFS: 45 → 22 %; −36:
+    15 → 11 %; what is left is the bench noise floor). Mid and high levels
+    unchanged, as expected.
+  - Listening test: the five PicoScope strums (scaled to the bench's full
+    scale) played through the board clean, hard and soft (scratch
+    `fx_record.py`). Recorded peaks: clean −29.5, hard −31.9, soft −21.2
+    dBFS (soft's ×3 small-signal gain).
+- **TODO (timing, later):** the worst path is now block RAM output (2.45
+  ns, its output register unused) → 24-bit subtract `T(a+1) - T(a)` → DSP
+  input, all in one clock. Met, but only ~6 % margin, and it moves between
+  builds. Fix when more is added: (1) register the gap in its own stage
+  before the multiply, and/or (2) add a second register on the ROM read so
+  Vivado uses the block RAM's built-in output register (~2.45 → ~0.8 ns).
+  Each adds a clock of latency (harmless: ~2000 clocks per sample).
 
 ## Effect #2: hard-clip distortion — on the board (2026-11-08, branch `effect-distortion`)
 
