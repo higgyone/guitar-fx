@@ -6,19 +6,22 @@
 -- measured latency.
 --
 -- Expected value, worked out here from the definition, not from the DUT:
---   a = bits 22..13 of |x|, where |x| is x for x >= 0 and (not x) for x < 0
---       (not x = -x - 1: never overflows, so -1.0 is fine)
---   t = round(tanh(k * a / 1024) / tanh(k) * (2**23 - 1))
+--   |x| = x for x >= 0, (not x) for x < 0
+--         (not x = -x - 1: never overflows, so -1.0 is fine)
+--   a = bits 22..13 of |x| (table entry), f = bits 12..0 (how far to a+1)
+--   T(i) = round(tanh(k * i / 1024) / tanh(k) * (2**23 - 1)), i = 0 .. 1024
+--   t = T(a) + floor((T(a+1) - T(a)) * f / 8192)    (linear interpolation)
 --   expected = t for x >= 0, (not t) = -t - 1 for x < 0
 --
 -- Test groups:
---   1. Spot values: zero, small, mid, full scale, -1.0, and low bits that
---      must be ignored (same address, same output).
+--   1. Spot values: zero, small, mid, full scale, -1.0; low bits now
+--      matter (same entry, bigger f, bigger output); inputs below one
+--      table step are no longer zero (no dead zone).
 --   2. Every one of the 1024 table entries, positive and negative, with
 --      changing low bits.
 --   3. Shape: odd symmetry (out(not x) = not out(x)), monotonic over the
---      sweep, the last entry is full scale, and small inputs are boosted
---      by about k / tanh(k) (the curve's slope at zero).
+--      sweep, the top is full scale, and small inputs are boosted by about
+--      k / tanh(k) (the curve's slope at zero).
 --   4. sample_out holds between samples; reset clears it.
 --
 -- Run (repo root, PowerShell, GHDL):
@@ -43,7 +46,7 @@ architecture sim of soft_clip_stage_tb is
     constant sample_max : integer := 2 ** 23 - 1;
     constant sample_min : integer := -(2 ** 23);
 
-    -- Table entry a (0 .. 1023) from the definition.
+    -- Table entry a (0 .. 1024) from the definition.
 
     function entry (
         a : natural
@@ -63,6 +66,8 @@ architecture sim of soft_clip_stage_tb is
         variable xs  : signed(23 downto 0);
         variable mag : signed(23 downto 0);
         variable a   : natural;
+        variable f   : natural;
+        variable t   : integer;
 
     begin
 
@@ -75,11 +80,15 @@ architecture sim of soft_clip_stage_tb is
         end if;
 
         a := to_integer(unsigned(mag(22 downto 13)));
+        f := to_integer(unsigned(mag(12 downto 0)));
+        -- The gap is never negative, so integer "/" (rounds toward zero)
+        -- is the same as floor, i.e. dropping the bottom 13 bits.
+        t := entry(a) + ((entry(a + 1) - entry(a)) * f) / 8192;
 
         if (x >= 0) then
-            return entry(a);
+            return t;
         else
-            return -entry(a) - 1;
+            return -t - 1;
         end if;
 
     end function expected_out;
@@ -188,20 +197,32 @@ begin
         send("small -", -(2 ** 18), got);
         send("mid +", 2 ** 22, got);
         send("mid -", -(2 ** 22), got);
-        -- Entry 1023 stands for input 1023/1024, so it is just under full
-        -- scale (tanh(k * 1023/1024) / tanh(k) = 0.99997 for k = 3).
+        -- Full scale interpolates almost all the way to entry 1024 (exactly
+        -- 2**23 - 1), so it is within one LSB-ish of full scale.
         send("full scale +", sample_max, got);
-        assert real(got) > 0.9999 * real(sample_max)
-            report "full scale +: last entry not near full scale, got " & integer'image(got)
+        assert real(got) > 0.99999 * real(sample_max)
+            report "full scale +: not near full scale, got " & integer'image(got)
             severity failure;
-        send("-1.0", sample_min, got);
-        assert got = -entry(1023) - 1
-            report "-1.0: expected not(last entry), got " & integer'image(got)
+        send("-1.0", sample_min, got_n);
+        assert got_n = -got - 1
+            report "-1.0: expected not(full scale +), got " & integer'image(got_n)
             severity failure;
-        send("low bits ignored a", 300 * 2 ** 13, got);
-        send("low bits ignored b", 300 * 2 ** 13 + 2 ** 13 - 1, got_n);
-        assert got = got_n
-            report "low bits ignored: same address gave different outputs"
+        send("low bits matter a", 300 * 2 ** 13, got);
+        send("low bits matter b", 300 * 2 ** 13 + 2 ** 13 - 1, got_n);
+        assert got_n > got
+            report "low bits matter: bigger f did not give a bigger output"
+            severity failure;
+        assert got = entry(300)
+            report "low bits matter: f = 0 should give exactly entry 300"
+            severity failure;
+        -- Below one table step (2**13): the old staircase gave 0 here.
+        send("no dead zone +", 1000, got);
+        assert got > 0
+            report "no dead zone: input 1000 gave " & integer'image(got)
+            severity failure;
+        send("no dead zone -", -1001, got_n);                                                -- = not 1000
+        assert got_n = -got - 1
+            report "no dead zone: negative side not symmetric"
             severity failure;
         report "group 1 (spot values): ok"
             severity note;
