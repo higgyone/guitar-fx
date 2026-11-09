@@ -103,7 +103,7 @@ architecture sim of top_tb is
 
     end function test_sample;
 
-    -- Soft clip table entry a (0 .. 1023), from the definition:
+    -- Soft clip table entry a (0 .. 1024), from the definition:
     -- round(tanh(k * a / 1024) / tanh(k) * (2**23 - 1)).
 
     function soft_entry (
@@ -117,8 +117,9 @@ architecture sim of top_tb is
     end function soft_entry;
 
     -- What the DAC should play for ADC sample x. Dry: x itself.
-    -- Soft clip: address = bits 22..13 of |x| (|x| = not x for x < 0), then
-    -- the table entry, inverted back (not) for x < 0.
+    -- Soft clip: |x| = not x for x < 0; a = bits 22..13 of |x|, f = bits
+    -- 12..0; linear interpolation T(a) + floor((T(a+1) - T(a)) * f / 8192),
+    -- inverted back (not) for x < 0.
     -- Hard clip: x x c_drive the way gain_stage does it (Q1.23 x Q3.15 =
     -- Q4.38, add 2**14 to round, keep bits 38..15, saturate to Q1.23), then
     -- clipped to +/- c_threshold as hard_clip_stage does.
@@ -131,6 +132,8 @@ architecture sim of top_tb is
         variable y   : integer;
         variable mag : signed(23 downto 0);
         variable a   : natural;
+        variable f   : natural;
+        variable t   : integer;
 
     begin
 
@@ -143,10 +146,12 @@ architecture sim of top_tb is
                 mag := not to_signed(x, 24);
             end if;
             a := to_integer(unsigned(mag(22 downto 13)));
+            f := to_integer(unsigned(mag(12 downto 0)));
+            t := soft_entry(a) + ((soft_entry(a + 1) - soft_entry(a)) * f) / 8192; -- gap >= 0: "/" = floor
             if (x >= 0) then
-                return soft_entry(a);
+                return t;
             else
-                return -soft_entry(a) - 1;
+                return -t - 1;
             end if;
         end if;
 
