@@ -10,11 +10,22 @@ every session (either PC); update it at the end.**
 2. Implementing the effects (spec section 6), on top of the working I2S path.
 
 **Later (not before the PCB and effects):**
-- **Boot from the Arty's QSPI flash.** Write the bitstream into the on-board
-  flash, so the board configures itself at power-on instead of being
-  programmed from Vivado every time.
+- ~~**Boot from the Arty's QSPI flash.**~~ Done 2026-11-09, see below and
+  [qspi_boot.md](qspi_boot.md).
 - **Control over the Arty's USB-UART.** Commands from the PC to switch
   effects in and out and change their parameters (spec Q5.1 / Q5.2).
+
+## QSPI flash boot — done (2026-11-09, branch `qspi-boot`)
+
+- The board boots from its QSPI flash (Micron MT25QL128,
+  `mt25ql128-spi-x1_x2_x4`) at power-on, with the MODE jumper on.
+- XDC: quad SPI, 33 MHz configuration clock, compression.
+  `create_project.tcl` writes a `.bin` with every `.bit` (`-bin_file`).
+- Image 408 KB (compression saved 14.3 Mbit of ~17.5), ~25 ms to load.
+  Timing unchanged (WNS +0.589 ns).
+- Tested after a power cycle: locked LED on, audio through at the usual
+  bypass gain (−28.8 dB).
+- How to update the flash: [qspi_boot.md](qspi_boot.md).
 
 ## Effect #3: soft-clip distortion — on the board (2026-11-08, branch `effect-soft-clip`)
 
