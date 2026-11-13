@@ -35,7 +35,8 @@ library ieee;
 entity tremolo_stage is
     generic (
         g_rate_hz     : real := 5.0;
-        g_sample_rate : real := 48000.0
+        g_sample_rate : real := 48000.0;
+        g_depth       : real := 0.5     -- how far the volume dips: 0.0 none .. 1.0 to silence
     );
     port (
         clk              : in    std_logic;
@@ -68,24 +69,44 @@ architecture rtl of tremolo_stage is
 
     end function generate_sine_values;
 
-    constant c_sin  : t_sin                 := generate_sine_values;
-    constant c_step : unsigned(31 downto 0) := to_unsigned(integer(round(g_rate_hz * 2.0 ** 32 / g_sample_rate)), 32);
+    constant c_sin   : t_sin                 := generate_sine_values;
+    constant c_step  : unsigned(31 downto 0) := to_unsigned(integer(round(g_rate_hz * 2.0 ** 32 / g_sample_rate)), 32);
+    constant c_depth : signed(17 downto 0)   := to_signed(integer(round(g_depth * 32768.0)), 18);
 
-    signal s_phase         : unsigned(31 downto 0) := (others => '0');
-    signal s_valid         : std_logic;
-    signal s_address       : unsigned(9 downto 0);
-    signal s_current_phase : signed(17 downto 0);
+    signal s_phase       : unsigned(31 downto 0) := (others => '0');
+    signal s_address     : unsigned(9 downto 0);
+    signal s_sine        : signed(17 downto 0);
+    signal s_u           : signed(17 downto 0);
+    signal s_dip         : signed(17 downto 0);
+    signal s_dip_product : signed(35 downto 0);
+    signal s_gain        : signed(17 downto 0);
 
 begin
+
+    tremolo_gain_stage : entity work.gain_stage
+        port map (
+            clk              => clk,
+            reset            => reset,
+            sample_in        => sample_in,
+            sample_in_valid  => sample_in_valid,
+            gain             => s_gain,
+            sample_out       => sample_out,
+            sample_out_valid => sample_out_valid
+        );
 
     tremolo_proc : process (clk) is
     begin
 
         if rising_edge(clk) then
-            s_current_phase <= c_sin(to_integer(s_address));
+            s_sine        <= c_sin(to_integer(s_address));
+            s_u           <= shift_right(s_sine + 32768, 1); -- (1 + s_sine) / 2;
+            s_dip_product <= s_u * c_depth;
+            s_dip         <= s_dip_product(32 downto 15);
+            s_gain        <= (to_signed(32768, 18) - s_dip);
 
             if (reset = '1') then
-            elsif (s_valid = '1') then
+                s_phase <= (others => '0');
+            elsif (sample_in_valid = '1') then
                 s_phase <= s_phase + c_step;
             end if;
         end if;
