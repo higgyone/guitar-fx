@@ -4,9 +4,14 @@
 -- the same sample to both channels out):
 --
 --   ad_sdout -> i2s_rx -+-> drive_gain_stage -> clip_stage -+-> distortion
---                       +-> soft_clip ----------------------+   mux
+--                       +-> soft_clip ----------------------+   mux (SW0, SW1)
 --                       +---------------- bypass -----------+    |
---        da_sdin <- i2s_tx <- output_gain_stage <- soft_start <--+
+--                                                                 v
+--                                         +---------- tremolo <---+
+--                            tremolo mux <+                       |
+--                             (SW2)   |   +------- bypass --------+
+--                                     v
+--      da_sdin <- i2s_tx <- output_gain_stage <- soft_start
 --
 -- Distortion (effect #2), two kinds:
 --   hard: drive_gain_stage (a gain_stage, g_drive_gain) pushes the signal
@@ -18,6 +23,13 @@
 --   SW0 distortion_sw = '0'            -> dry (SW1 ignored)
 --   SW0 = '1', SW1 soft_clip_sw = '1'  -> soft clip
 --   SW0 = '1', SW1 soft_clip_sw = '0'  -> hard clip
+--
+-- Tremolo (effect #3): tremolo (tremolo_stage) turns the volume up and down
+-- g_tremolo_rate_hz times a second, dipping to 1 - g_tremolo_depth. It
+-- comes after the distortion: a clipper squashes level changes, so a
+-- tremolo in front of it would be mostly flattened out.
+--   SW2 tremolo_sw = '1' -> tremolo on, '0' -> passed straight through
+--
 -- Effects go before soft_start, so its mute and fade-in apply to the
 -- effected signal.
 --
@@ -55,6 +67,8 @@
 -- g_soft_drive (real, k in tanh(k x) / tanh(k)) sets the soft clip:
 -- ~1 barely bends, 3 (default) overdrive, 10 near a hard clip. Quiet notes
 -- come out about k / tanh(k) louder, so the soft clip is louder than dry.
+-- g_tremolo_rate_hz (real, Hz) and g_tremolo_depth (real, 0.0 none .. 1.0
+-- dips to silence) set the tremolo: defaults 5 Hz and 0.5 (-6 dB dips).
 --
 -- Test tone: g_test_tone = true sends tone_gen's 1 kHz, -20 dBFS sine
 -- straight to i2s_tx instead of the audio path, to check the DAC and line
@@ -67,19 +81,22 @@ library ieee;
 
 entity top is
     generic (
-        g_mute_samples : natural                               := 144000;  -- 3 s at 48 kHz
-        g_ramp_bits    : natural                               := 11;      -- 2,048-sample ramp
-        g_gain         : integer range -2 ** 17 to 2 ** 17 - 1 := 1024;    -- 1/32 = -30.1 dB in Q3.15
-        g_test_tone    : boolean                               := false;   -- true: 1 kHz test tone to the DAC
-        g_threshold    : integer range 0 to 2 ** 23 - 1        := 2 ** 20; -- clip level, Q0.23; 2**20 = 0.125 (max 2**23 - 1 = no clipping)
-        g_drive_gain   : integer range -2 ** 17 to 2 ** 17 - 1 := 2 ** 16; -- drive before the clip, Q3.15; 2**16 = x2.0 (2**15 = x1.0)
-        g_soft_drive   : real                                  := 3.0      -- soft clip drive k (tanh), 3.0 = overdrive
+        g_mute_samples    : natural                               := 144000;  -- 3 s at 48 kHz
+        g_ramp_bits       : natural                               := 11;      -- 2,048-sample ramp
+        g_gain            : integer range -2 ** 17 to 2 ** 17 - 1 := 1024;    -- 1/32 = -30.1 dB in Q3.15
+        g_test_tone       : boolean                               := false;   -- true: 1 kHz test tone to the DAC
+        g_threshold       : integer range 0 to 2 ** 23 - 1        := 2 ** 20; -- clip level, Q0.23; 2**20 = 0.125 (max 2**23 - 1 = no clipping)
+        g_drive_gain      : integer range -2 ** 17 to 2 ** 17 - 1 := 2 ** 16; -- drive before the clip, Q3.15; 2**16 = x2.0 (2**15 = x1.0)
+        g_soft_drive      : real                                  := 3.0;     -- soft clip drive k (tanh), 3.0 = overdrive
+        g_tremolo_rate_hz : real                                  := 5.0;     -- tremolo speed, Hz
+        g_tremolo_depth   : real                                  := 0.5      -- how far the tremolo dips: 0.0 none .. 1.0 to silence
     );
     port (
         clk100mhz     : in    std_logic; -- 100 MHz board clock (E3)
         reset_btn     : in    std_logic; -- BTN0, '1' while pressed
         distortion_sw : in    std_logic; -- SW0, '1' = distortion on
         soft_clip_sw  : in    std_logic; -- SW1, '1' = soft clip, '0' = hard clip (when SW0 = '1')
+        tremolo_sw    : in    std_logic; -- SW2, '1' = tremolo on
         ad_sdout      : in    std_logic; -- Pmod AD SDOUT (ADC data in)
         led_locked    : out   std_logic; -- LD4: MMCM locked
         da_mclk       : out   std_logic; -- Pmod DA row: DAC clocks and data
@@ -132,9 +149,15 @@ architecture rtl of top is
     -- soft_clip -> the distortion mux.
     signal s_soft_clip_sample       : signed(23 downto 0);
     signal s_soft_clip_sample_valid : std_logic;
-    -- The distortion mux -> soft_start.
+    -- The distortion mux -> tremolo and the tremolo mux.
     signal s_fx_sample       : signed(23 downto 0);
     signal s_fx_sample_valid : std_logic;
+    -- tremolo -> the tremolo mux.
+    signal s_tremolo_sample       : signed(23 downto 0);
+    signal s_tremolo_sample_valid : std_logic;
+    -- The tremolo mux -> soft_start ("mod": the modulation effects).
+    signal s_mod_sample       : signed(23 downto 0);
+    signal s_mod_sample_valid : std_logic;
     -- soft_start -> output_gain_stage.
     signal s_soft_sample       : signed(23 downto 0);
     signal s_soft_sample_valid : std_logic;
@@ -148,9 +171,9 @@ architecture rtl of top is
     signal s_tx_sample       : signed(23 downto 0);
     signal s_tx_sample_valid : std_logic;
 
-    -- Switch synchronisers (SW0, SW1). Both start at '0' (dry; hard clip
-    -- selected), the plain state, until the real switch positions arrive
-    -- two clocks later.
+    -- Switch synchronisers (SW0, SW1, SW2). All start at '0' (dry; hard clip
+    -- selected; no tremolo), the plain state, until the real switch
+    -- positions arrive two clocks later.
     signal s_distortion_raw  : std_logic;        -- distortion_sw as read (not on s_clk)
     signal s_distortion_meta : std_logic := '0'; -- FF1: may go metastable
     signal s_distortion      : std_logic := '0'; -- FF2: clean SW0, '1' = distortion on
@@ -158,6 +181,10 @@ architecture rtl of top is
     signal s_soft_select_raw  : std_logic;        -- soft_clip_sw as read (not on s_clk)
     signal s_soft_select_meta : std_logic := '0'; -- FF1: may go metastable
     signal s_soft_select      : std_logic := '0'; -- FF2: clean SW1, '1' = soft clip, '0' = hard
+
+    signal s_tremolo_raw  : std_logic;        -- tremolo_sw as read (not on s_clk)
+    signal s_tremolo_meta : std_logic := '0'; -- FF1: may go metastable
+    signal s_tremolo      : std_logic := '0'; -- FF2: clean SW2, '1' = tremolo on
 
 begin
 
@@ -244,6 +271,23 @@ begin
             sample_out_valid => s_soft_clip_sample_valid
         );
 
+    -- Tremolo: an LFO-driven gain on whatever the distortion mux sends.
+    -- g_sample_rate is left at its 48 kHz default (the real rate is
+    -- 48.0025 kHz: 0.005 % slow, inaudible).
+    tremolo : entity work.tremolo_stage
+        generic map (
+            g_rate_hz => g_tremolo_rate_hz,
+            g_depth   => g_tremolo_depth
+        )
+        port map (
+            clk              => s_clk,
+            reset            => s_reset,
+            sample_in        => s_fx_sample,
+            sample_in_valid  => s_fx_sample_valid,
+            sample_out       => s_tremolo_sample,
+            sample_out_valid => s_tremolo_sample_valid
+        );
+
     soft_start_stage : entity work.soft_start
         generic map (
             g_mute_samples => g_mute_samples,
@@ -252,8 +296,8 @@ begin
         port map (
             clk              => s_clk,
             reset            => s_reset,
-            sample_in        => s_fx_sample,
-            sample_in_valid  => s_fx_sample_valid,
+            sample_in        => s_mod_sample,
+            sample_in_valid  => s_mod_sample_valid,
             sample_out       => s_soft_sample,
             sample_out_valid => s_soft_sample_valid
         );
@@ -298,10 +342,10 @@ begin
 
     end process reset_sync;
 
-    -- Switch synchronisers (SW0, SW1): two flip-flops each on s_clk, as
+    -- Switch synchronisers (SW0, SW1, SW2): two flip-flops each on s_clk, as
     -- reset_sync. The slide switches are not on s_clk, so they can change at
     -- any moment.
-    distortion_sync : process (s_clk) is
+    switch_sync : process (s_clk) is
     begin
 
         if rising_edge(s_clk) then
@@ -310,19 +354,24 @@ begin
 
             s_soft_select_meta <= s_soft_select_raw;  -- FF1 takes the raw input
             s_soft_select      <= s_soft_select_meta; -- FF2 (clean)
+
+            s_tremolo_meta <= s_tremolo_raw;          -- FF1 takes the raw input
+            s_tremolo      <= s_tremolo_meta;         -- FF2 (clean)
         end if;
 
-    end process distortion_sync;
+    end process switch_sync;
 
     s_distortion_raw  <= distortion_sw;
     s_soft_select_raw <= soft_clip_sw;
+    s_tremolo_raw     <= tremolo_sw;
     s_reset_raw       <= reset_btn or not s_locked;
     led_locked        <= s_locked;
 
     -- Distortion mux: SW0 off -> dry, straight from i2s_rx (SW1 ignored);
     -- SW0 on -> SW1 picks soft clip ('1') or hard clip ('0'). Sample and
     -- valid switch together. The paths have different delays (hard 2
-    -- clocks, soft 1, dry 0); that's fine, soft_start only acts on valid.
+    -- clocks, soft 3, dry 0); that's fine, the blocks after only act on
+    -- valid.
     -- The last branch has no condition, so every switch setting has an
     -- answer (no latch).
     s_fx_sample <= s_rx_sample when s_distortion = '0' else         -- SW0 off: dry
@@ -332,6 +381,15 @@ begin
     s_fx_sample_valid <= s_rx_sample_valid when s_distortion = '0' else
                          s_soft_clip_sample_valid when s_soft_select = '1' else
                          s_clip_sample_valid;
+
+    -- Tremolo mux: SW2 off -> the distortion mux's output, straight
+    -- through; SW2 on -> the tremolo's. The tremolo runs all the time, so
+    -- switching is instant (its LFO keeps its place either way).
+    s_mod_sample <= s_fx_sample when s_tremolo = '0' else -- SW2 off: no tremolo
+                    s_tremolo_sample;                     -- SW2 on: tremolo
+
+    s_mod_sample_valid <= s_fx_sample_valid when s_tremolo = '0' else
+                          s_tremolo_sample_valid;
 
     -- One set of I2S clocks for both Pmod rows.
     da_mclk <= s_mclk;

@@ -4,8 +4,8 @@
 --   clk100mhz  100 MHz oscillator; the Clocking Wizard makes the 98.304 MHz
 --              system clock from it (in Vivado's simulation the real IP model)
 --   reset_btn  BTN0, pressed once in the middle of the run
---   distortion_sw  SW0 and soft_clip_sw SW1, held for the whole run, from
---              the generic g_mode:
+--   distortion_sw SW0, soft_clip_sw SW1 and tremolo_sw SW2, held for the
+--              whole run, from the generic g_mode:
 --              0 (default) dry: SW0 '0'. The DAC must play the ADC's
 --                samples bit-exact.
 --              1 hard clip: SW0 '1', SW1 '0', drive x2.0, threshold 0.125
@@ -15,6 +15,12 @@
 --              2 soft clip: SW0 '1', SW1 '1', k = 3.0 (c_soft_drive).
 --                expected_out(x): the tanh table worked out here with
 --                math_real (as soft_clip_stage_tb does), not from the DUT.
+--              3 tremolo: SW0 '0' (dry), SW2 '1', rate 2 kHz (24 frames
+--                per LFO cycle, so it doesn't lock to the 16-frame test
+--                sine), depth 0.5. The LFO phase isn't modelled, so the
+--                check is the envelope: |out| between (1 - depth) x |dry|
+--                and |dry|, with dipped and undipped frames both seen.
+--              SW2 is '0' in modes 0..2, so those still check exact output.
 --   ADC model  CS5343 on ad_mclk / ad_lrck / ad_sclk / ad_sdout: drives sdout
 --              20 ns after each ad_sclk falling edge (I2S, as in i2s_rx_tb)
 --   DAC model  CS4344 on da_mclk / da_lrck / da_sclk / da_sdin: reads sdin on
@@ -48,7 +54,7 @@
 --
 -- Run (repo root, PowerShell), Vivado: set top_tb as the simulation top,
 -- Run Behavioral Simulation (Vivado compiles the Clocking Wizard's model).
--- For the other runs, set g_mode=1 (hard) or g_mode=2 (soft) in the
+-- For the other runs, set g_mode=1 (hard), 2 (soft) or 3 (tremolo) in the
 -- simulation settings (Generics/Parameters). xsim CLI: xelab top_tb
 -- -L unisim -generic_top g_mode=2 (the .bat launcher splits "x=y", so put
 -- the xelab arguments in a file and pass -f file).
@@ -61,7 +67,7 @@ library ieee;
 
 entity top_tb is
     generic (
-        g_mode : natural range 0 to 2 := 0 -- 0 dry, 1 hard clip, 2 soft clip
+        g_mode : natural range 0 to 3 := 0 -- 0 dry, 1 hard clip, 2 soft clip, 3 tremolo
     );
 end entity top_tb;
 
@@ -78,6 +84,8 @@ architecture sim of top_tb is
     constant c_drive         : integer := 2 ** 16;                       -- drive x2.0 (Q3.15)
     constant c_threshold     : integer := 2 ** 20;                       -- clip at 0.125 (Q0.23)
     constant c_soft_drive    : real    := 3.0;                           -- soft clip k
+    constant c_trem_rate     : real    := 2000.0;                        -- tremolo LFO, Hz (24 frames per cycle)
+    constant c_trem_depth    : real    := 0.5;                           -- tremolo depth
 
     -- Test sample n: a sine, 16 frames per cycle, 0.9 of full scale, with
     -- full-scale values and small values now and then.
@@ -137,7 +145,7 @@ architecture sim of top_tb is
 
     begin
 
-        if (g_mode = 0) then
+        if (g_mode = 0 or g_mode = 3) then
             return x;
         elsif (g_mode = 2) then
             if (x >= 0) then
@@ -179,6 +187,7 @@ architecture sim of top_tb is
     signal reset_btn     : std_logic := '0';
     signal distortion_sw : std_logic := '0'; -- SW0: set from g_mode below
     signal soft_clip_sw  : std_logic := '0'; -- SW1: set from g_mode below
+    signal tremolo_sw    : std_logic := '0'; -- SW2: set from g_mode below
     signal ad_sdout      : std_logic := '0';
     signal led_locked    : std_logic;
     signal da_mclk       : std_logic;
@@ -200,26 +209,31 @@ begin
     clk100mhz <= not clk100mhz after c_clk100_period / 2;
 
     -- The switches are held for the whole run (switching is not tested here).
-    distortion_sw <= '0' when g_mode = 0 else
+    distortion_sw <= '0' when g_mode = 0 or g_mode = 3 else
                      '1';
     soft_clip_sw  <= '1' when g_mode = 2 else
+                     '0';
+    tremolo_sw    <= '1' when g_mode = 3 else
                      '0';
 
     dut : entity work.top
         generic map (
-            g_mute_samples => c_mute,
-            g_ramp_bits    => c_ramp_bits,
-            g_gain         => c_gain,
-            g_test_tone    => false,
-            g_threshold    => c_threshold,
-            g_drive_gain   => c_drive,
-            g_soft_drive   => c_soft_drive
+            g_mute_samples    => c_mute,
+            g_ramp_bits       => c_ramp_bits,
+            g_gain            => c_gain,
+            g_test_tone       => false,
+            g_threshold       => c_threshold,
+            g_drive_gain      => c_drive,
+            g_soft_drive      => c_soft_drive,
+            g_tremolo_rate_hz => c_trem_rate,
+            g_tremolo_depth   => c_trem_depth
         )
         port map (
             clk100mhz     => clk100mhz,
             reset_btn     => reset_btn,
             distortion_sw => distortion_sw,
             soft_clip_sw  => soft_clip_sw,
+            tremolo_sw    => tremolo_sw,
             ad_sdout      => ad_sdout,
             led_locked    => led_locked,
             da_mclk       => da_mclk,
@@ -376,6 +390,8 @@ begin
         variable n_clip_p : natural   := 0; -- distortion: frames checked at +threshold
         variable n_clip_n : natural   := 0; -- distortion: frames checked at -threshold
         variable n_lin    : natural   := 0; -- distortion: unclipped non-zero frames checked
+        variable n_dip    : natural   := 0; -- tremolo: frames turned down (< 0.9 x dry)
+        variable n_full   : natural   := 0; -- tremolo: frames near full level (> 0.95 x dry)
 
     begin
 
@@ -424,7 +440,10 @@ begin
                         report "frame " & integer'image(adc_frame) & " (mute/ramp): output "
                                & integer'image(got) & " bigger than expected " & integer'image(exp)
                         severity failure;
-                    if (got = exp and exp /= 0 and adc_frame - start >= c_mute) then
+                    -- Tremolo: the LFO keeps got /= exp, so pass-through is
+                    -- reached by time (mute + ramp over).
+                    if ((g_mode /= 3 and got = exp and exp /= 0 and adc_frame - start >= c_mute)
+                        or (g_mode = 3 and adc_frame - start >= c_settle)) then
                         phase := 1;
                         runs  := runs + 1;
                         report "pass-through from frame " & integer'image(adc_frame)
@@ -434,6 +453,25 @@ begin
                             report "no pass-through " & integer'image(c_settle)
                                    & " frames after reset (mute + ramp should be over)"
                             severity failure;
+                    end if;
+                elsif (g_mode = 3) then
+                    -- Tremolo: |out| between (1 - depth) x |dry| and |dry|.
+                    assert abs (got) <= abs (exp)
+                           and real(abs (got)) >= (1.0 - c_trem_depth) * real(abs (exp)) - 2.0
+                        report "frame " & integer'image(adc_frame) & ": tremolo output "
+                               & integer'image(got) & " outside " & real'image(1.0 - c_trem_depth)
+                               & " .. 1.0 x dry " & integer'image(exp)
+                        severity failure;
+                    assert (got >= 0) = (exp >= 0) or got = 0
+                        report "frame " & integer'image(adc_frame) & ": tremolo changed the sign"
+                        severity failure;
+                    n_pass := n_pass + 1;
+                    if (abs (exp) > 2 ** 20) then
+                        if (real(abs (got)) < 0.9 * real(abs (exp))) then
+                            n_dip := n_dip + 1;
+                        elsif (real(abs (got)) > 0.95 * real(abs (exp))) then
+                            n_full := n_full + 1;
+                        end if;
                     end if;
                 else
                     -- After the ramp: exactly expected_out(last frame's ADC sample).
@@ -466,7 +504,17 @@ begin
                 report "coverage: " & integer'image(runs) & " pass-through stretch(es), "
                        & integer'image(n_pass) & " frames checked"
                 severity failure;
-            if (g_mode = 2) then
+            if (g_mode = 3) then
+                -- 6. Tremolo: the level really moves.
+                assert n_dip > 0 and n_full > 0
+                    report "tremolo coverage: " & integer'image(n_dip) & " dipped, "
+                           & integer'image(n_full) & " near full level"
+                    severity failure;
+                report "TREMOLO run: " & integer'image(n_pass) & " frames in the envelope, in "
+                       & integer'image(runs) & " stretches; " & integer'image(n_dip)
+                       & " dipped, " & integer'image(n_full) & " near full level"
+                    severity note;
+            elsif (g_mode = 2) then
                 -- 6. Soft clip: both signs exercised.
                 assert n_clip_p > 0 and n_clip_n > 0
                     report "soft clip coverage: " & integer'image(n_clip_p) & " positive, "
