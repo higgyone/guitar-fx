@@ -14,6 +14,23 @@ every session (either PC); update it at the end.**
   [qspi_boot.md](qspi_boot.md).
 - **Control over the Arty's USB-UART.** Commands from the PC to switch
   effects in and out and change their parameters (spec Q5.1 / Q5.2).
+  **Started 2026-11-13 (laptop):** groundwork in [uart.md](uart.md)
+  (8N1 at 115 200 baud, blocks uart_tx -> uart_rx -> echo -> command
+  decoder). Section 7 answered (A9 = FPGA in / D10 = out, 853 clocks per
+  bit = +0.04 %, 2-FF sync for the async input, 86.8 us per byte ~ 4
+  samples).
+  - **`uart_tx` done** (user-written): 10-bit shift register loaded
+    `'1' & data & '0'`, right shift filling '1', tx = bit 0, generic
+    `g_clks_per_bit`. `sim/uart_tx_tb.vhd` (PC receiver model, 16 clocks
+    per bit) passes: 7 bytes, start bit and busy length exact, valid
+    while busy ignored, back-to-back, idle. Lessons: reset must be the
+    outer if (counting outside it runs during reset and idle); VHDL
+    range-checks every assignment, so `x + 1` at the limit fails even if
+    a later line overrides it (put the increment in an `else`); `&`
+    joins left to right, so `v(8 downto 0) & '1'` is a left shift.
+    Still to tidy: port comments (lines 13/15 hold review notes), header.
+  - Next: board test (Vivado PC: send a fixed message on a button press,
+    view in a terminal at 115200 8N1), or design `uart_rx` (laptop).
 
 ## Effect #4: tremolo — on the board (2026-11-13, branch `effect-tremolo`)
 
@@ -254,7 +271,7 @@ Hides the power-up thump: mute 3 s, then ramp the gain 0 → 1.0 over
      - Clocking Wizard `clk_wiz_audio` created by `create_project.tcl`
        (create_ip + CONFIG only): 100 MHz → 98.30508 MHz (VCO 725 MHz =
        ×7.25, /7.375), 11 ppm off. Script also sets tops `top` / `top_tb`.
-       Run it with the full path: `& "C:\AMDDesignTools5.2\Vivadoinivado.bat"
+       Run it with the full path: `& "C:\AMDDesignTools\2025.2\Vivado\bin\vivado.bat"
        -mode batch -source scripts/create_project.tcl` (Vivado not on PATH).
      - `rtl/top.vhd`: IP as a component (MMCM reset '0'), reset =
        `reset_btn or not locked` through a 2-FF synchroniser on s_clk
