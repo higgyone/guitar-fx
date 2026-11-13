@@ -15,6 +15,36 @@ every session (either PC); update it at the end.**
 - **Control over the Arty's USB-UART.** Commands from the PC to switch
   effects in and out and change their parameters (spec Q5.1 / Q5.2).
 
+## Effect #4: tremolo — on the board (2026-11-13, branch `effect-tremolo`)
+
+(Spec section 6 calls it #3; this log already used #3 for the soft clip.)
+
+- `rtl/tremolo_stage.vhd` (user-written): `gain = 1 - depth * (1 + sin) / 2`,
+  `out = in * gain`, so the gain swings from 1.0 down to 1 - depth and never
+  boosts.
+  - LFO: a 32-bit phase accumulator, `c_step = rate * 2**32 / fs` (5 Hz:
+    447 392), stepping once per sample; it wraps by itself, so it repeats
+    with no reset logic and keeps its fractional remainder.
+  - Sine table: 1024 × Q2.15, filled at build time; address = phase bits
+    31..22.
+  - Gain: a 5-register pipeline every clock (sine → (1 + sin) / 2 → × depth
+    in a DSP → back to Q.15 → 1 - dip), into a `gain_stage` instance. No
+    valid chain needed: the gain changes far slower than a few clocks.
+  - Generics `g_rate_hz` (5.0), `g_depth` (0.5), `g_sample_rate` (48000.0).
+- `sim/tremolo_stage_tb.vhd`: depth 0.5, 1.0 and 0.0 all pass (never above
+  the input, right sign, first sample at 1 - depth/2, min / max, 480-sample
+  period at 100 Hz, depth 0 bit-exact).
+- `top.vhd`: tremolo after the distortion mux (a clipper would flatten it
+  if it came first), its own bypass mux on **SW2** (`tremolo_sw`, C10, 2-FF
+  synchroniser), generics `g_tremolo_rate_hz` / `g_tremolo_depth`.
+  `top_tb` mode 3 checks the envelope (between 0.5 and 1.0 × dry, dipped and
+  full-level frames both seen); modes 0..2 still bit-exact.
+- **Bench** (1 kHz at −12 dBFS, SW2 up, SW0 down, scratch `trem_test.py`):
+  rate **5.00 Hz**, depth **0.500** (6.0 dB swing), the envelope a clean
+  sine. Its top matches the SW2-down level to 0.1 dB, so the gain really
+  reaches 1.0. ![tremolo on the bench](img/tremolo_bench.png)
+- Written to the QSPI flash: the board boots with all three switches.
+
 ## QSPI flash boot — done (2026-11-09, branch `qspi-boot`)
 
 - The board boots from its QSPI flash (Micron MT25QL128,
