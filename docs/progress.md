@@ -28,7 +28,7 @@ every session (either PC); update it at the end.**
     range-checks every assignment, so `x + 1` at the limit fails even if
     a later line overrides it (put the increment in an `else`); `&`
     joins left to right, so `v(8 downto 0) & '1'` is a left shift.
-    Still to tidy: port comments (lines 13/15 hold review notes), header.
+    Header and comments added (Claude, on request).
   - Next: board test (Vivado PC: send a fixed message on a button press,
     view in a terminal at 115200 8N1), or design `uart_rx` (laptop).
 
