@@ -134,6 +134,23 @@ Generic `g_clks_per_bit` (853).
   glitch → idle) → `st_data` (8 × full bit, shift) → `st_stop` (full bit;
   '1' → valid pulse, '0' → frame_error pulse) → idle.
 
+### Echo test: can `uart_tx` be busy when a byte arrives? (yes)
+
+Echo = uart_rx's byte + valid straight into uart_tx. uart_rx pulses valid
+at the middle of each stop bit (9.5 bits after the start bit); uart_tx then
+stays busy for exactly 10 of **our** bit times (853 clocks each). With
+back-to-back input the next valid comes 10 of the **PC's** bit times later:
+
+- PC at exactly 115 200 (853.3 clocks/bit) or slower: echo finishes ~2
+  clocks before the next valid. Just in time.
+- PC slightly fast (USB-UART chips often land a little above 115 200): the
+  next valid arrives while uart_tx is busy and that byte is **dropped**.
+
+Typing by hand never hits it (gaps between keys). **Pasting text** may drop
+characters — worth trying on the board. Fix: a small FIFO between uart_rx
+and uart_tx. A FIFO absorbs bursts, not a permanent rate difference; fine
+for short commands (16 bytes is plenty).
+
 ## 5. Command protocol — to decide (later)
 
 | Option | PC side | FPGA side |

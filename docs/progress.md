@@ -42,7 +42,12 @@ every session (either PC); update it at the end.**
     UART pins in the XDC, wire uart_rx's byte + valid straight into
     uart_tx in top.vhd, type in a terminal at 115200 8N1. Question for
     the user first: can uart_tx ever be busy when a byte arrives?
-    Then: the command protocol (uart.md section 5).
+    Answered yes (uart.md, echo section): back-to-back input from a PC
+    even slightly faster than 115 246 baud drops bytes; typed keys are
+    fine, pasted text may lose characters.
+  - **Next (user's choice, 2026-11-14): design a small FIFO** (~16 bytes)
+    between uart_rx and uart_tx. Then the echo test on the board, then
+    the command protocol (uart.md section 5).
 
 ## Effect #4: tremolo — on the board (2026-11-13, branch `effect-tremolo`)
 
