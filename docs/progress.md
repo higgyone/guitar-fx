@@ -29,8 +29,20 @@ every session (either PC); update it at the end.**
     a later line overrides it (put the increment in an `else`); `&`
     joins left to right, so `v(8 downto 0) & '1'` is a left shift.
     Header and comments added (Claude, on request).
-  - Next: board test (Vivado PC: send a fixed message on a button press,
-    view in a terminal at 115200 8N1), or design `uart_rx` (laptop).
+  - **`uart_rx` done** (2026-11-14, user-written): 2-FF synchroniser
+    (starts '1'), states idle / start (half bit, glitch check) / data (8 x
+    full bit, shift in at the top) / stop (full bit: valid or
+    frame_error pulse, back to idle mid-stop). `sim/uart_rx_tb.vhd` (PC
+    transmitter model, 32 clocks per bit, line edges not clock-aligned)
+    passes: 8 bytes, back-to-back, +/-3 % baud, glitch, framing error,
+    reset mid-frame. Lessons: copying a limit from another state (half
+    bit in st_data samples edges); an `else` that resets instead of
+    counting hangs the state. Header by Claude (on request).
+  - **Next: echo test on the board** (Vivado PC): uncomment the two
+    UART pins in the XDC, wire uart_rx's byte + valid straight into
+    uart_tx in top.vhd, type in a terminal at 115200 8N1. Question for
+    the user first: can uart_tx ever be busy when a byte arrives?
+    Then: the command protocol (uart.md section 5).
 
 ## Effect #4: tremolo — on the board (2026-11-13, branch `effect-tremolo`)
 

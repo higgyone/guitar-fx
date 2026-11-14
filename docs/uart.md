@@ -111,6 +111,29 @@ Generic `g_clks_per_bit` (853; the testbench uses a small value).
 - `s_baud_count` 0 .. g_clks_per_bit − 1 (count-to-limit), `s_bit_count`
   0 .. 9; busy clears when bit 9's time ends. Reset: register all '1'.
 
+### `uart_rx` design (agreed 2026-11-14)
+
+| Port | Dir | Type | Meaning |
+|------|-----|------|---------|
+| `clk`, `reset` | in | `std_logic` | as always |
+| `rx` | in | `std_logic` | raw pin `uart_txd_in` (A9), not yet synchronised |
+| `data_out` | out | `std_logic_vector(7 downto 0)` | received byte |
+| `data_out_valid` | out | `std_logic` | one-clock pulse: good byte |
+| `frame_error` | out | `std_logic` | one-clock pulse: stop bit was '0', byte discarded |
+
+Generic `g_clks_per_bit` (853).
+
+- 2-FF synchroniser `s_rx_meta` → `s_rx_sync`, both starting **'1'** (idle;
+  '0' would look like a start bit). Only `s_rx_sync` is used after it.
+- Sample in the **middle** of each bit: half a bit (`g_clks_per_bit / 2` =
+  426, integer division) after the start bit's falling edge, then every full
+  bit. Margin ±½ bit; after 9.5 bits a 2 % rate error drifts ~0.19 bit.
+- LSB first → shift **right**, new bit in at the top:
+  `s_data <= s_rx_sync & s_data(7 downto 1)`; after 8 bits d0 is in bit 0.
+- States: `st_idle` (wait for '0') → `st_start` (half bit; still '0'? else
+  glitch → idle) → `st_data` (8 × full bit, shift) → `st_stop` (full bit;
+  '1' → valid pulse, '0' → frame_error pulse) → idle.
+
 ## 5. Command protocol — to decide (later)
 
 | Option | PC side | FPGA side |
