@@ -57,10 +57,15 @@ every session (either PC); update it at the end.**
     20-byte burst (17 out in order, 3 dropped + tx_overflow). Lesson: the
     queue goes in front of the slow part (transmit), not the entrance.
     Header by Claude (on request).
-  - **Next: top.vhd** (uart-fifo branch): ports uart_txd_in / uart_rxd_out,
-    one `uart` instance, echo = rx_data -> tx_data, rx_valid -> tx_valid;
-    top_tb must drive uart_txd_in. Then merge to main, build, terminal at
-    115200 8N1 (type, then paste). Then the command protocol (uart.md 5).
+  - **top.vhd done** (2026-11-15, user-written): ports uart_txd_in /
+    uart_rxd_out, generic g_uart_clks_per_bit (853), one `uart_stage`,
+    echo through s_uart_rx_data / s_uart_rx_valid. Header and comments by
+    Claude. top_tb check 7 (Claude): "Hi!" + CR back-to-back after lock
+    must echo in order (g_uart_clks_per_bit 16). Analyses in GHDL;
+    **top_tb not yet run** (needs Vivado: Clocking Wizard IP).
+  - **Next (Vivado PC):** re-run create_project.tcl, run top_tb (all
+    modes), build, terminal on the Arty COM port at 115200 8N1: type, then
+    paste a long line. Then the command protocol (uart.md section 5).
 
 ## Effect #4: tremolo — on the board (2026-11-13, branch `effect-tremolo`)
 
