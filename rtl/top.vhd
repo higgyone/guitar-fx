@@ -73,6 +73,16 @@
 -- Test tone: g_test_tone = true sends tone_gen's 1 kHz, -20 dBFS sine
 -- straight to i2s_tx instead of the audio path, to check the DAC and line
 -- out with nothing plugged into the line in. Leave it false for normal use.
+--
+-- UART (uart: uart_rx + transmit FIFO + uart_tx, 8N1): the Arty's USB-UART,
+-- uart_txd_in (A9, PC -> FPGA) and uart_rxd_out (D10, FPGA -> PC). Open the
+-- board's COM port in a terminal at 115 200 baud, 8N1. For now an echo
+-- test: every byte received is queued straight back (rx_data / rx_valid
+-- wired into tx_data / tx_valid through s_uart_rx_data / s_uart_rx_valid).
+-- A command decoder will replace the echo, to switch the effects and set
+-- their parameters from the PC. g_uart_clks_per_bit = s_clk / baud rate:
+-- 853 for 115 200 at 98.305 MHz (+0.04 %); top_tb makes it small.
+--
 -- Pins: constraints/Arty-A7-35-Master.xdc. Testbench: sim/top_tb.vhd.
 
 library ieee;
@@ -81,15 +91,16 @@ library ieee;
 
 entity top is
     generic (
-        g_mute_samples    : natural                               := 144000;  -- 3 s at 48 kHz
-        g_ramp_bits       : natural                               := 11;      -- 2,048-sample ramp
-        g_gain            : integer range -2 ** 17 to 2 ** 17 - 1 := 1024;    -- 1/32 = -30.1 dB in Q3.15
-        g_test_tone       : boolean                               := false;   -- true: 1 kHz test tone to the DAC
-        g_threshold       : integer range 0 to 2 ** 23 - 1        := 2 ** 20; -- clip level, Q0.23; 2**20 = 0.125 (max 2**23 - 1 = no clipping)
-        g_drive_gain      : integer range -2 ** 17 to 2 ** 17 - 1 := 2 ** 16; -- drive before the clip, Q3.15; 2**16 = x2.0 (2**15 = x1.0)
-        g_soft_drive      : real                                  := 3.0;     -- soft clip drive k (tanh), 3.0 = overdrive
-        g_tremolo_rate_hz : real                                  := 5.0;     -- tremolo speed, Hz
-        g_tremolo_depth   : real                                  := 0.5      -- how far the tremolo dips: 0.0 none .. 1.0 to silence
+        g_mute_samples      : natural                               := 144000;  -- 3 s at 48 kHz
+        g_ramp_bits         : natural                               := 11;      -- 2,048-sample ramp
+        g_gain              : integer range -2 ** 17 to 2 ** 17 - 1 := 1024;    -- 1/32 = -30.1 dB in Q3.15
+        g_test_tone         : boolean                               := false;   -- true: 1 kHz test tone to the DAC
+        g_threshold         : integer range 0 to 2 ** 23 - 1        := 2 ** 20; -- clip level, Q0.23; 2**20 = 0.125 (max 2**23 - 1 = no clipping)
+        g_drive_gain        : integer range -2 ** 17 to 2 ** 17 - 1 := 2 ** 16; -- drive before the clip, Q3.15; 2**16 = x2.0 (2**15 = x1.0)
+        g_soft_drive        : real                                  := 3.0;     -- soft clip drive k (tanh), 3.0 = overdrive
+        g_tremolo_rate_hz   : real                                  := 5.0;     -- tremolo speed, Hz
+        g_tremolo_depth     : real                                  := 0.5;     -- how far the tremolo dips: 0.0 none .. 1.0 to silence
+        g_uart_clks_per_bit : natural                               := 853      -- clocks per UART bit (115 200 baud)
     );
     port (
         clk100mhz     : in    std_logic; -- 100 MHz board clock (E3)
@@ -98,6 +109,8 @@ entity top is
         soft_clip_sw  : in    std_logic; -- SW1, '1' = soft clip, '0' = hard clip (when SW0 = '1')
         tremolo_sw    : in    std_logic; -- SW2, '1' = tremolo on
         ad_sdout      : in    std_logic; -- Pmod AD SDOUT (ADC data in)
+        uart_txd_in   : in    std_logic; -- USB-UART: PC -> FPGA (A9)
+        uart_rxd_out  : out   std_logic; -- USB-UART: FPGA -> PC (D10)
         led_locked    : out   std_logic; -- LD4: MMCM locked
         da_mclk       : out   std_logic; -- Pmod DA row: DAC clocks and data
         da_lrck       : out   std_logic;
@@ -185,6 +198,9 @@ architecture rtl of top is
     signal s_tremolo_raw  : std_logic;        -- tremolo_sw as read (not on s_clk)
     signal s_tremolo_meta : std_logic := '0'; -- FF1: may go metastable
     signal s_tremolo      : std_logic := '0'; -- FF2: clean SW2, '1' = tremolo on
+
+    signal s_uart_rx_data  : std_logic_vector(7 downto 0); -- byte from the PC
+    signal s_uart_rx_valid : std_logic;
 
 begin
 
@@ -322,6 +338,28 @@ begin
             frame_start      => s_frame_start,
             sample_out       => s_tone_sample,
             sample_out_valid => s_tone_sample_valid
+        );
+
+    -- USB-UART: echo test. rx <- uart_txd_in (from the PC), tx ->
+    -- uart_rxd_out (to the PC). tx_data / tx_valid are the byte just
+    -- received, so every byte from the PC is queued straight back. Later a
+    -- command decoder goes between rx and tx.
+    uart_stage : entity work.uart
+        generic map (
+            g_clks_per_bit => g_uart_clks_per_bit
+        )
+        port map (
+            clk            => s_clk,
+            reset          => s_reset,
+            rx             => uart_txd_in,
+            tx_data        => s_uart_rx_data,
+            tx_valid       => s_uart_rx_valid,
+            tx             => uart_rxd_out,
+            rx_data        => s_uart_rx_data,
+            rx_valid       => s_uart_rx_valid,
+            rx_frame_error => open,
+            tx_full        => open,
+            tx_overflow    => open
         );
 
     -- The test-tone switch: g_test_tone picks what i2s_tx sends. It is a

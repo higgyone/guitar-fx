@@ -47,6 +47,10 @@
 --      (+threshold and -threshold) and unclipped non-zero ones. Soft clip:
 --      positive and negative outputs. So each path is exercised through
 --      the real chain.
+--   7. UART echo (g_uart_clks_per_bit 16): "Hi!\r" sent back-to-back on
+--      uart_txd_in after lock comes back on uart_rxd_out, in order (PC
+--      transmitter / receiver models, as in uart_tb). Checked before the
+--      final report.
 --
 -- The test pattern (test_sample) mixes a 0.9 full-scale sine with +/-
 -- full scale and three small values: 2**18 and -(2**18 + 12345) (x2 stays
@@ -86,6 +90,8 @@ architecture sim of top_tb is
     constant c_soft_drive    : real    := 3.0;                           -- soft clip k
     constant c_trem_rate     : real    := 2000.0;                        -- tremolo LFO, Hz (24 frames per cycle)
     constant c_trem_depth    : real    := 0.5;                           -- tremolo depth
+    constant c_uart_clks     : natural := 16;                            -- g_uart_clks_per_bit for the test
+    constant c_uart_bit      : time    := c_uart_clks * 10.172 ns;       -- one UART bit at s_clk 98.305 MHz
 
     -- Test sample n: a sine, 16 frames per cycle, 0.9 of full scale, with
     -- full-scale values and small values now and then.
@@ -197,6 +203,15 @@ architecture sim of top_tb is
     signal ad_mclk       : std_logic;
     signal ad_lrck       : std_logic;
     signal ad_sclk       : std_logic;
+    signal uart_txd_in   : std_logic := '1'; -- PC -> FPGA, idles high
+    signal uart_rxd_out  : std_logic;        -- FPGA -> PC
+
+    -- UART echo check (7): bytes the PC sends, and whether they came back.
+
+    type t_uart_bytes is array (0 to 3) of std_logic_vector(7 downto 0);
+
+    constant c_uart_msg  : t_uart_bytes := (x"48", x"69", x"21", x"0D"); -- "Hi!\r"
+    signal   uart_echoed : boolean      := false;
 
     type t_sent is array (0 to c_frames + 2) of integer;
 
@@ -218,15 +233,16 @@ begin
 
     dut : entity work.top
         generic map (
-            g_mute_samples    => c_mute,
-            g_ramp_bits       => c_ramp_bits,
-            g_gain            => c_gain,
-            g_test_tone       => false,
-            g_threshold       => c_threshold,
-            g_drive_gain      => c_drive,
-            g_soft_drive      => c_soft_drive,
-            g_tremolo_rate_hz => c_trem_rate,
-            g_tremolo_depth   => c_trem_depth
+            g_mute_samples      => c_mute,
+            g_ramp_bits         => c_ramp_bits,
+            g_gain              => c_gain,
+            g_test_tone         => false,
+            g_threshold         => c_threshold,
+            g_drive_gain        => c_drive,
+            g_soft_drive        => c_soft_drive,
+            g_tremolo_rate_hz   => c_trem_rate,
+            g_tremolo_depth     => c_trem_depth,
+            g_uart_clks_per_bit => c_uart_clks
         )
         port map (
             clk100mhz     => clk100mhz,
@@ -242,8 +258,81 @@ begin
             da_sdin       => da_sdin,
             ad_mclk       => ad_mclk,
             ad_lrck       => ad_lrck,
-            ad_sclk       => ad_sclk
+            ad_sclk       => ad_sclk,
+            uart_txd_in   => uart_txd_in,
+            uart_rxd_out  => uart_rxd_out
         );
+
+    -- 7. UART echo: the PC sends "Hi!\r" back-to-back on uart_txd_in soon
+    -- after lock (well before the button at frame c_press_at), and each
+    -- byte must come back on uart_rxd_out, in order (top's echo test).
+    uart_pc_tx : process is
+    begin
+
+        wait until led_locked = '1';
+        wait for 5 us;                           -- s_reset released after lock
+
+        for n in c_uart_msg'range loop
+
+            uart_txd_in <= '0';                  -- start bit
+            wait for c_uart_bit;
+
+            for i in 0 to 7 loop                 -- LSB first
+
+                uart_txd_in <= c_uart_msg(n)(i);
+                wait for c_uart_bit;
+
+            end loop;
+
+            uart_txd_in <= '1';                  -- stop bit
+            wait for c_uart_bit;
+
+        end loop;
+
+        wait;
+
+    end process uart_pc_tx;
+
+    uart_pc_rx : process is
+
+        variable b : std_logic_vector(7 downto 0);
+
+    begin
+
+        wait until led_locked = '1';
+
+        for n in c_uart_msg'range loop
+
+            wait until uart_rxd_out = '0';      -- start bit
+            wait for c_uart_bit / 2;
+            assert uart_rxd_out = '0'
+                report "UART echo: bad start bit"
+                severity failure;
+
+            for i in 0 to 7 loop
+
+                wait for c_uart_bit;
+                b(i) := uart_rxd_out;
+
+            end loop;
+
+            wait for c_uart_bit;
+            assert uart_rxd_out = '1'
+                report "UART echo: framing error"
+                severity failure;
+            assert b = c_uart_msg(n)
+                report "UART echo: byte " & integer'image(n) & " came back as 0x" & to_hstring(b)
+                       & ", sent 0x" & to_hstring(c_uart_msg(n))
+                severity failure;
+
+        end loop;
+
+        report "UART echo: " & integer'image(c_uart_msg'length) & " bytes back, in order"
+            severity note;
+        uart_echoed <= true;
+        wait;
+
+    end process uart_pc_rx;
 
     -- 1. The MMCM must lock; the button is pressed at frame c_press_at.
     board : process is
@@ -541,6 +630,9 @@ begin
                        & integer'image(runs) & " stretches (before and after the button)"
                     severity note;
             end if;
+            assert uart_echoed
+                report "UART echo: not all bytes came back"
+                severity failure;
             report "ALL TESTS PASSED"
                 severity note;
             std.env.finish;

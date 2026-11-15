@@ -45,9 +45,27 @@ every session (either PC); update it at the end.**
     Answered yes (uart.md, echo section): back-to-back input from a PC
     even slightly faster than 115 246 baud drops bytes; typed keys are
     fine, pasted text may lose characters.
-  - **Next (user's choice, 2026-11-14): design a small FIFO** (~16 bytes)
-    between uart_rx and uart_tx. Then the echo test on the board, then
-    the command protocol (uart.md section 5).
+  - **`uart_fifo` done** (Vivado PC, branch `uart-fifo`): count-based
+    circular buffer, show-ahead read, guarded write/read, overflow pulse;
+    the branch also uncomments the UART pins in the XDC.
+  - **`uart` wrapper done** (2026-11-15, laptop, user-written wiring):
+    uart_rx straight out (rx_data / rx_valid / rx_frame_error);
+    tx_data / tx_valid -> uart_fifo -> uart_tx; one line
+    `s_fifo_rd_en = not empty and not busy` drives the FIFO's rd_en and
+    uart_tx's data_in_valid. `sim/uart_tb.vhd` (end to end, echo in the
+    TB) passes: typed echo, 24 pasted bytes from a PC 0.5 % fast, a
+    20-byte burst (17 out in order, 3 dropped + tx_overflow). Lesson: the
+    queue goes in front of the slow part (transmit), not the entrance.
+    Header by Claude (on request).
+  - **top.vhd done** (2026-11-15, user-written): ports uart_txd_in /
+    uart_rxd_out, generic g_uart_clks_per_bit (853), one `uart_stage`,
+    echo through s_uart_rx_data / s_uart_rx_valid. Header and comments by
+    Claude. top_tb check 7 (Claude): "Hi!" + CR back-to-back after lock
+    must echo in order (g_uart_clks_per_bit 16). Analyses in GHDL;
+    **top_tb not yet run** (needs Vivado: Clocking Wizard IP).
+  - **Next (Vivado PC):** re-run create_project.tcl, run top_tb (all
+    modes), build, terminal on the Arty COM port at 115200 8N1: type, then
+    paste a long line. Then the command protocol (uart.md section 5).
 
 ## Effect #4: tremolo — on the board (2026-11-13, branch `effect-tremolo`)
 

@@ -151,6 +151,39 @@ characters — worth trying on the board. Fix: a small FIFO between uart_rx
 and uart_tx. A FIFO absorbs bursts, not a permanent rate difference; fine
 for short commands (16 bytes is plenty).
 
+### `uart` wrapper block (2026-11-15)
+
+`top.vhd` is ~400 lines; the UART goes in as **one** structural block (like
+`soft_start` containing `gain_stage`), built from the user's `uart_rx`,
+`uart_fifo` (branch `uart-fifo`: count-based circular buffer, show-ahead
+read, guarded write/read, overflow pulse) and `uart_tx`:
+
+```
+ rx ──→ [uart_rx] ──→ rx_data, rx_valid, rx_frame_error ──→ (out)
+
+ (in) tx_data, tx_valid ──→ [uart_fifo] wr_data, wr_en
+                                  │ rd_data ──→ [uart_tx] data_in ──→ tx
+                                  │ rd_en ←── not empty and not busy ──→ data_in_valid
+                            full ──→ tx_full (out),  overflow ──→ tx_overflow (out)
+```
+
+| Port | Dir | Goes to |
+|------|-----|---------|
+| `clk`, `reset` | in | all three blocks |
+| `rx` | in | `uart_rx.rx` (pin `uart_txd_in`, A9) |
+| `tx_data` (7..0), `tx_valid` | in | `uart_fifo.wr_data`, `wr_en` |
+| `tx` | out | `uart_tx.tx` (pin `uart_rxd_out`, D10) |
+| `rx_data` (7..0), `rx_valid`, `rx_frame_error` | out | from `uart_rx` |
+| `tx_full`, `tx_overflow` | out | from `uart_fifo` |
+
+Generics: `g_clks_per_bit` (853, to uart_rx and uart_tx), `g_fifo_addr_bits`
+(4, to uart_fifo). The only logic: `rd_en = not empty and not busy`, which
+drives both `uart_fifo.rd_en` and `uart_tx.data_in_valid` (uart_tx raises
+busy on the edge it accepts a byte, so one byte leaves per send).
+FIFO on the **transmit** side: uart_tx is the slow consumer (86.8 µs/byte).
+Echo test in top = two wires (`rx_data -> tx_data`, `rx_valid -> tx_valid`);
+the command decoder replaces them later.
+
 ## 5. Command protocol — to decide (later)
 
 | Option | PC side | FPGA side |
