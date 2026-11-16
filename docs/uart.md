@@ -184,7 +184,90 @@ FIFO on the **transmit** side: uart_tx is the slow consumer (86.8 µs/byte).
 Echo test in top = two wires (`rx_data -> tx_data`, `rx_valid -> tx_valid`);
 the command decoder replaces them later.
 
-## 5. Command protocol — to decide (later)
+## 5. Command protocol
+
+**Decided 2026-11-16: option A, binary packets from a Python script.**
+
+```
+PC → FPGA:   [ register ] [ value high byte ] [ value low byte ]     3 bytes
+FPGA → PC:   [ 0x06 ] ACK (done)     or     [ 0x15 ] NAK (unknown register)
+```
+
+Answered (user):
+- **Q1 lost byte → timeout.** If a command has started and no byte arrives
+  for ~1 ms (≈ 11 byte times; bytes inside a command are back-to-back),
+  discard what was received and wait for a new register byte. The Python
+  script waits for the ACK (~100 ms timeout) before sending the next
+  command, so a broken command is always followed by a long enough gap.
+- **Q2 switches vs PC → a register bit.** Register 0x00 bit 7 = PC control:
+  '0' (reset) the board switches decide, '1' bits 0..2 decide. The pedal
+  works as before until the PC takes over; easy to flip while testing.
+
+Decoder states (proposed):
+
+| State | On rx_valid | Timeout or rx_frame_error |
+|-------|-------------|---------------------------|
+| st_reg | byte = register number → st_hi | (nothing to discard) |
+| st_hi | byte = value high → st_lo | → st_reg |
+| st_lo | byte = value low; known register: write it, reply 0x06; else 0x15; → st_reg | → st_reg |
+
+Timeout counter: cleared on every received byte, counts otherwise. Reply =
+one clock of tx_valid with tx_data into the uart block (queued by its FIFO).
+
+**Replies** (user asked for an error the PC can retry on, 2026-11-16):
+
+| Reply | Meaning | Python |
+|-------|---------|--------|
+| 0x06 ACK | written | next command |
+| 0x15 NAK | unknown register | don't resend (script bug), report |
+| 0x18 CAN | command broken (timeout or frame error) | resend |
+
+**st_discard** — after a timeout or `rx_frame_error`, ignore bytes (each one
+restarts the timer) until the line has been quiet for the timeout, then send
+**one** CAN and go to st_reg. Without it, the rest of a broken command would
+start a new command and cause a second CAN, which the PC would take as the
+reply to its resend. Rule: exactly one reply per command attempt.
+
+**Python side:** send 3 bytes, wait ≤ 100 ms: ACK done; NAK stop + report;
+CAN or nothing → resend (≤ 3 tries). "Nothing" covers a lost command and a
+lost reply; a resend after a lost ACK writes the same value again, harmless
+(writes are idempotent, so retries are safe).
+
+Timeout: **1 ms = 98 305 clocks → 17-bit counter** (2^17 = 131 072); generic
+`g_timeout_clks` (98305) so the testbench can shrink it. Frame error →
+abandon the command at once (via st_discard).
+
+### Proposed split: `cmd_decoder` + `ctrl_regs`
+
+```
+uart rx_* ──→ [ cmd_decoder ] ──→ reg_addr, reg_data, reg_write ──→ [ ctrl_regs ] ──→ effect settings
+uart tx_* ←──          └──── reg_addr_valid (register exists?) ←─────────┘
+```
+
+- `cmd_decoder`: bytes, timeout, ACK / NAK / CAN; turns 3 bytes into one
+  write (8-bit address, 16-bit value, one-clock `reg_write`).
+- `ctrl_regs`: what each register means; stores values (reset = current
+  defaults), converts to the effects' Q-formats, says which addresses exist.
+
+**Agreed 2026-11-16.** reg_addr is driven all the time from s_reg_addr
+(stored in st_reg); ctrl_regs answers reg_addr_valid combinationally, so
+it is ready long before st_lo, where the decoder checks it (write + ACK, or
+NAK). Reply codes as constants c_ack / c_nak / c_can. Signals: s_state
+(st_reg, st_hi, st_lo, st_discard), s_reg_addr, s_data_hi, s_timer (0 ..
+g_timeout_clks - 1), s_tx_data / s_tx_valid, s_reg_data, s_reg_write.
+
+`cmd_decoder` ports: clk, reset; rx_data (7..0), rx_valid, rx_frame_error
+in (from uart); tx_data (7..0), tx_valid out (reply to uart); reg_addr
+(7..0), reg_data (15..0), reg_write out; reg_addr_valid in. Generic
+g_timeout_clks.
+
+Proposed registers (to refine): 0x00 effect on/off bits, 0x01 output gain,
+0x02 drive gain, 0x03 clip threshold, 0x04 tremolo depth, 0x05 tremolo rate.
+Several need a fixed-point mapping into 16 bits (Q3.15 is 18 bits, the
+threshold 23, the tremolo phase step 32). The soft clip drive stays a
+generic (its tanh table is built at elaboration).
+
+### Earlier option comparison
 
 | Option | PC side | FPGA side |
 |--------|---------|-----------|

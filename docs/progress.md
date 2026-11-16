@@ -63,9 +63,28 @@ every session (either PC); update it at the end.**
     Claude. top_tb check 7 (Claude): "Hi!" + CR back-to-back after lock
     must echo in order (g_uart_clks_per_bit 16). Analyses in GHDL;
     **top_tb not yet run** (needs Vivado: Clocking Wizard IP).
-  - **Next (Vivado PC):** re-run create_project.tcl, run top_tb (all
+  - **Still to do (Vivado PC):** re-run create_project.tcl, run top_tb (all
     modes), build, terminal on the Arty COM port at 115200 8N1: type, then
-    paste a long line. Then the command protocol (uart.md section 5).
+    paste a long line.
+  - **Command protocol decided** (2026-11-16, uart.md section 5): binary,
+    3 bytes [register][value hi][value lo] from a Python script; replies
+    ACK 0x06 / NAK 0x15 (unknown register) / CAN 0x18 (broken, resend);
+    1 ms timeout (98 305 clocks, 17 bits); st_discard so a broken command
+    gets exactly one CAN; Python resends on CAN or no reply (100 ms).
+    Register 0x00 bit 7 = PC control vs board switches. Split into
+    `cmd_decoder` (protocol) + `ctrl_regs` (meanings).
+  - **`cmd_decoder` done** (laptop, user-written logic): states st_reg /
+    st_hi / st_lo / st_discard, timer that stops at the top.
+    `sim/cmd_decoder_tb.vhd` (fake ctrl_regs: 0x00..0x05 exist) passes
+    all checks: good, unknown register, missing byte, bad byte + rest,
+    bad byte + stream (one CAN), back-to-back, reset mid-command, resync.
+    Header and comments by Claude (on request). Lessons: count if/end
+    if from the outside; an output port with no driver gives no GHDL
+    warning, only a silent block.
+  - **Next: `ctrl_regs`** — the register map, fitting each setting into
+    16 bits (Q-formats), defaults = today's generics, reg_addr_valid;
+    then the Python script (`model/`, pyserial, user-written), then
+    replace the echo in top.vhd.
 
 ## Effect #4: tremolo — on the board (2026-11-13, branch `effect-tremolo`)
 
