@@ -267,6 +267,81 @@ Several need a fixed-point mapping into 16 bits (Q3.15 is 18 bits, the
 threshold 23, the tremolo phase step 32). The soft clip drive stays a
 generic (its tanh table is built at elaboration).
 
+### `ctrl_regs` v1 (proposed 2026-11-17)
+
+Only settings that already reach an effect through a **port**; no effect
+changes needed. Tremolo rate/depth are generics today (`tremolo_stage`
+needs ports first: stage 2). Soft-clip drive stays a generic (table built
+at elaboration).
+
+| Reg | Setting | 16-bit value | Reset value |
+|-----|---------|--------------|-------------|
+| 0x00 | control | bit 0 distortion on, bit 1 soft clip, bit 2 tremolo on, bit 7 PC control (0 = switches decide) | bit 7 = 0 (switches) |
+| 0x01 | output gain | Q3.13 → Q3.15 for gain_stage (open: how) | 1/32 (today's g_gain) |
+| 0x02 | drive gain | Q3.13 → Q3.15 | ×2.0 (g_drive_gain) |
+| 0x03 | clip threshold | top 16 bits of Q0.23 = Q0.16 → Q0.23 (open: how) | 0.125 (g_threshold) |
+
+With no PC, the pedal behaves exactly as now.
+
+Gain mapping (answered): Q3.13 → Q3.15 = `signed(v) & "00"` (2 zero fraction
+bits at the bottom: same value, sign bit stays on top). PC side: gain × 2^13
+(2.0 = 16 384 = 0x4000). Threshold Q0.16 → Q0.23 = `unsigned(v) & "0000000"`
+(answered): step 2^-16 ≈ −96 dB; PC sends threshold × 2^16 (0.125 = 8 192 =
+0x2000).
+
+**Register map v1 (complete):**
+
+| Reg | Access | Setting | PC sends | FPGA | Default |
+|-----|--------|---------|----------|------|---------|
+| 0x00 | R/W | control | bits 0..2 effects, bit 7 PC control | bits | bit 7 = 0 |
+| 0x01 | R/W | output gain | Q3.13 | `& "00"` → Q3.15 | 256 (1/32) |
+| 0x02 | R/W | drive gain | Q3.13 | `& "00"` → Q3.15 | 16 384 (×2.0) |
+| 0x03 | R/W | clip threshold | Q0.16 | `& "0000000"` → Q0.23 | 8 192 (0.125) |
+| 0x10 | R | live state | — | — | — |
+| 0x7F | R | version | — | — | g_version |
+
+**ctrl_regs chooses switches vs PC:** it takes the synchronised switches
+(`sw_distortion`, `sw_soft`, `sw_tremolo`) and outputs the effective bits
+(`fx_distortion`, `fx_soft`, `fx_tremolo`) from the switches (bit 7 = 0) or
+register 0x00 (bit 7 = 1). So 0x10 is easy, and top only swaps the mux
+selects. Other ports: reg_addr / reg_data / reg_write in; reg_addr_valid,
+reg_addr_writable, reg_rdata out; out_gain (17..0), drive_gain (17..0),
+threshold (22..0) out. Generics: defaults in register formats + g_version.
+
+Register number = **reg_addr(6 downto 0)** (bit 7 is the read flag), as an
+integer s_addr for a `case`. E.g. read output gain: PC sends 0x81 0x00 0x00,
+FPGA replies 0x06 0x01 0x00 (0x0100 = 256 = 1/32 in Q3.13).
+
+Structure (walked through 2026-11-17): stored registers s_reg_* (16 bits,
+start at the defaults); clocked write process (reset loads defaults,
+reg_write stores into case s_addr, `when others => null`); combinational
+read process `process (all)` with **defaults first** (rdata 0, valid '0',
+writable '0') so every output is assigned on every path — otherwise
+synthesis infers a latch; output wires: fx_* = register bit when PC control
+else switch, gains `& "00"`, threshold `& "0000000"`, s_live aggregate.
+
+### Reading registers (user request, 2026-11-17)
+
+Bit 7 of byte 1 = read. Still 3 bytes (value bytes ignored), so byte
+counting, timeout and discard are unchanged; only st_lo's decision differs.
+
+```
+Write:  [ reg ]        [ hi ] [ lo ]  →  [ ACK ]
+Read:   [ 0x80 | reg ] [ xx ] [ xx ]  →  [ ACK ] [ value hi ] [ value lo ]
+Unknown register (or write to a read-only one)  →  [ NAK ]
+```
+
+Registers to read: the settings (raw 16-bit values as written), and
+read-only **status** registers, e.g. 0x10 live state (effects actually on,
+switch positions SW0..2, PC control), 0x11 locked / error counters, 0x7F
+version constant (Python checks it).
+
+Changes: ctrl_regs adds `reg_rdata` (16 bits, combinational from reg_addr)
+and `reg_addr_writable`; cmd_decoder sends 3 bytes on 3 consecutive clocks
+(new states st_rd_hi, st_rd_lo after st_lo; open: copy reg_rdata on the
+first clock or read it live?); Python reads 1 byte, then 2 more on a read
+ACK. Order: ctrl_regs (incl. read side) → decoder read path → Python.
+
 ### Earlier option comparison
 
 | Option | PC side | FPGA side |
