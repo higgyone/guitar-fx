@@ -81,10 +81,26 @@ every session (either PC); update it at the end.**
     Header and comments by Claude (on request). Lessons: count if/end
     if from the outside; an output port with no driver gives no GHDL
     warning, only a silent block.
-  - **Next: `ctrl_regs`** — the register map, fitting each setting into
-    16 bits (Q-formats), defaults = today's generics, reg_addr_valid;
-    then the Python script (`model/`, pyserial, user-written), then
-    replace the echo in top.vhd.
+  - **Register reads added to the protocol** (user request, 2026-11-17):
+    bit 7 of byte 1 = read; reply ACK + value hi + value lo. Status
+    registers 0x10 (live state) and 0x7F (version), read-only.
+  - **`ctrl_regs` done** (2026-11-17, user-written logic): registers
+    0x00 control (bits 0..2 effects, bit 7 PC control), 0x01 output gain
+    Q3.13, 0x02 drive Q3.13 (`& "00"` -> Q3.15), 0x03 threshold Q0.16
+    (`& 7 zeros` -> Q0.23), 0x10 live, 0x7F version; register number =
+    reg_addr(6 downto 0); combinational read process with defaults first
+    (no latches); fx_* = PC bit or switch (mux on bit 7). Defaults = the
+    pedal's fixed settings. `sim/ctrl_regs_tb.vhd` passes (defaults,
+    decode, writes, read-only ignored, switches vs PC, version, reset).
+    Header/comments by Claude. Lessons: GHDL only catches width / range
+    mistakes when the sim runs; a port's width is set by what connects
+    to it, pick bits inside with a slice; `16#10#` is a number, `x"10"`
+    a bit string.
+  - **Next: cmd_decoder read path** — on a read (reg_addr(7) = '1') send
+    ACK + reg_rdata hi + lo on three consecutive clocks (new states, copy
+    reg_rdata on the first); NAK writes where reg_addr_writable = '0'.
+    Then the Python script (`model/`, pyserial, user-written), then
+    cmd_decoder + ctrl_regs into top.vhd in place of the echo.
 
 ## Effect #4: tremolo — on the board (2026-11-13, branch `effect-tremolo`)
 
