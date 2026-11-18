@@ -129,6 +129,12 @@ every session (either PC); update it at the end.**
   - **Next (Vivado PC):** see docs/vivado_todo.md: re-run
     create_project.tcl, top_tb all modes with the real IP, build, then
     `fx.py --port COMx status` and a write, e.g. `write control 0x85`.
+  - **Next on the laptop (options, 2026-11-18):** (1) effect #4 tone
+    filter: biquad theory refresher, Python model with a frequency
+    response plot (user-written), then VHDL with coefficient
+    quantisation — recommended; (2) UART stage 2: tremolo rate/depth
+    as ports + two registers; (3) soft-clip timing margin (extra
+    pipeline register; check timing on the Vivado PC).
 
 ## Effect #4: tremolo — on the board (2026-11-13, branch `effect-tremolo`)
 
