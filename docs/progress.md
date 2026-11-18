@@ -106,9 +106,20 @@ every session (either PC); update it at the end.**
     clock; a decoder reading reg_rdata live fails it). Header by Claude.
     Lessons: `elsif` vs `else if`; a read needs no pulse (the value is
     always there), a write does; snapshot multi-byte values.
-  - **Next:** the Python script (`model/`, pyserial, user-written:
-    write / read / status, retries on CAN or silence), then cmd_decoder +
-    ctrl_regs into top.vhd in place of the echo (Vivado PC to build).
+  - **Python control script done** (2026-11-18): `model/fx.py`. Steps
+    1..3 user-written: gain <-> Q3.13 (round, range check, `& 0xFFFF` for
+    negatives), threshold <-> Q0.16, `send_command` (3 bytes, retry on
+    CAN / silence, NAK raises, read = ACK + 2 bytes), `write_reg` /
+    `read_reg`. Step 4 (argparse: write / read / status, --port, --fake)
+    and `model/fake_fpga.py` (cmd_decoder + ctrl_regs in Python, can lose
+    a byte or a reply) by Claude. `fx.py` with no arguments = self-test.
+    pyserial added to requirements (other PC: pip install -r again).
+    Lessons: Ruff checks hints exist, not that they are true (read_reg
+    returned bytes); a lost ACK makes the retry write twice, harmless.
+  - **Next:** cmd_decoder + ctrl_regs into top.vhd in place of the echo
+    (ctrl_regs' fx_* drive the muxes, out_gain / drive_gain / threshold
+    the effects), top_tb update, then build on the Vivado PC and try
+    `fx.py --port COMx status`.
 
 ## Effect #4: tremolo — on the board (2026-11-13, branch `effect-tremolo`)
 
