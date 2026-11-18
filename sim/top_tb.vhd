@@ -47,10 +47,14 @@
 --      (+threshold and -threshold) and unclipped non-zero ones. Soft clip:
 --      positive and negative outputs. So each path is exercised through
 --      the real chain.
---   7. UART echo (g_uart_clks_per_bit 16): "Hi!\r" sent back-to-back on
---      uart_txd_in after lock comes back on uart_rxd_out, in order (PC
---      transmitter / receiver models, as in uart_tb). Checked before the
---      final report.
+--   7. UART commands (g_uart_clks_per_bit 16), through uart, cmd_decoder
+--      and ctrl_regs: soon after lock the PC model sends three reads,
+--      back-to-back: version (0xFF) -> ACK 0x00 0x01; live state (0x90) ->
+--      ACK 0x00 + the switch bits (effects = switches, since the PC has not
+--      taken control); an unknown register (0xC0) -> NAK. Reads only, so
+--      the audio is untouched and checks 4..6 still hold (with no PC writes,
+--      ctrl_regs passes the switches and the generic defaults through).
+--      Checked before the final report.
 --
 -- The test pattern (test_sample) mixes a 0.9 full-scale sine with +/-
 -- full scale and three small values: 2**18 and -(2**18 + 12345) (x2 stays
@@ -206,12 +210,24 @@ architecture sim of top_tb is
     signal uart_txd_in   : std_logic := '1'; -- PC -> FPGA, idles high
     signal uart_rxd_out  : std_logic;        -- FPGA -> PC
 
-    -- UART echo check (7): bytes the PC sends, and whether they came back.
+    -- UART command check (7): the commands the PC sends, and whether the
+    -- replies were right.
 
-    type t_uart_bytes is array (0 to 3) of std_logic_vector(7 downto 0);
+    type t_uart_bytes is array (natural range <>) of std_logic_vector(7 downto 0);
 
-    constant c_uart_msg  : t_uart_bytes := (x"48", x"69", x"21", x"0D"); -- "Hi!\r"
-    signal   uart_echoed : boolean      := false;
+    constant c_uart_cmds  : t_uart_bytes(0 to 8) :=
+    (
+        x"FF",
+        x"00",
+        x"00", -- read 0x7F version
+        x"90",
+        x"00",
+        x"00", -- read 0x10 live state
+        x"C0",
+        x"00",
+        x"00"  -- read 0x40: unknown
+    );
+    signal   uart_replied : boolean              := false;
 
     type t_sent is array (0 to c_frames + 2) of integer;
 
@@ -263,28 +279,28 @@ begin
             uart_rxd_out  => uart_rxd_out
         );
 
-    -- 7. UART echo: the PC sends "Hi!\r" back-to-back on uart_txd_in soon
-    -- after lock (well before the button at frame c_press_at), and each
-    -- byte must come back on uart_rxd_out, in order (top's echo test).
+    -- 7. UART commands: the PC sends three read commands back-to-back on
+    -- uart_txd_in soon after lock (well before the button at frame
+    -- c_press_at); the replies on uart_rxd_out are checked in uart_pc_rx.
     uart_pc_tx : process is
     begin
 
         wait until led_locked = '1';
-        wait for 5 us;                           -- s_reset released after lock
+        wait for 5 us;                            -- s_reset released after lock
 
-        for n in c_uart_msg'range loop
+        for n in c_uart_cmds'range loop
 
-            uart_txd_in <= '0';                  -- start bit
+            uart_txd_in <= '0';                   -- start bit
             wait for c_uart_bit;
 
-            for i in 0 to 7 loop                 -- LSB first
+            for i in 0 to 7 loop                  -- LSB first
 
-                uart_txd_in <= c_uart_msg(n)(i);
+                uart_txd_in <= c_uart_cmds(n)(i);
                 wait for c_uart_bit;
 
             end loop;
 
-            uart_txd_in <= '1';                  -- stop bit
+            uart_txd_in <= '1';                   -- stop bit
             wait for c_uart_bit;
 
         end loop;
@@ -295,18 +311,43 @@ begin
 
     uart_pc_rx : process is
 
-        variable b : std_logic_vector(7 downto 0);
+        variable b      : std_logic_vector(7 downto 0);
+        variable live   : std_logic_vector(7 downto 0);
+        variable expect : t_uart_bytes(0 to 6);
 
     begin
 
         wait until led_locked = '1';
 
-        for n in c_uart_msg'range loop
+        -- Live state with the switches in charge: effects = switches (bits
+        -- 0..2), switches again in bits 4..6, PC control (bit 7) off.
+        live   :=
+        (
+            0 => distortion_sw,
+            1 => soft_clip_sw,
+            2 => tremolo_sw,
+            4 => distortion_sw,
+            5 => soft_clip_sw,
+            6 => tremolo_sw,
+            others => '0'
+        );
+        expect :=
+        (
+            x"06",
+            x"00",
+            x"01",                                                                       -- version: ACK, 1
+            x"06",
+            x"00",
+            live,                                                                        -- live: ACK, value
+            x"15"
+        );                                                                               -- unknown: NAK
 
-            wait until uart_rxd_out = '0';      -- start bit
+        for n in expect'range loop
+
+            wait until uart_rxd_out = '0';                                               -- start bit
             wait for c_uart_bit / 2;
             assert uart_rxd_out = '0'
-                report "UART echo: bad start bit"
+                report "UART: bad start bit"
                 severity failure;
 
             for i in 0 to 7 loop
@@ -318,18 +359,18 @@ begin
 
             wait for c_uart_bit;
             assert uart_rxd_out = '1'
-                report "UART echo: framing error"
+                report "UART: framing error"
                 severity failure;
-            assert b = c_uart_msg(n)
-                report "UART echo: byte " & integer'image(n) & " came back as 0x" & to_hstring(b)
-                       & ", sent 0x" & to_hstring(c_uart_msg(n))
+            assert b = expect(n)
+                report "UART: reply byte " & integer'image(n) & " is 0x" & to_hstring(b)
+                       & ", expected 0x" & to_hstring(expect(n))
                 severity failure;
 
         end loop;
 
-        report "UART echo: " & integer'image(c_uart_msg'length) & " bytes back, in order"
+        report "UART: version, live state and NAK replies all right"
             severity note;
-        uart_echoed <= true;
+        uart_replied <= true;
         wait;
 
     end process uart_pc_rx;
@@ -630,8 +671,8 @@ begin
                        & integer'image(runs) & " stretches (before and after the button)"
                     severity note;
             end if;
-            assert uart_echoed
-                report "UART echo: not all bytes came back"
+            assert uart_replied
+                report "UART: not all command replies came back"
                 severity failure;
             report "ALL TESTS PASSED"
                 severity note;
