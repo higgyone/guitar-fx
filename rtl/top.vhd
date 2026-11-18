@@ -19,16 +19,17 @@
 --   soft: soft_clip (soft_clip_stage, a tanh lookup table, drive
 --         g_soft_drive). Fed straight from i2s_rx: a gain_stage in front
 --         would itself hard-clip at full scale.
--- The mux picks one, from two switches (each synchronised to s_clk):
---   SW0 distortion_sw = '0'            -> dry (SW1 ignored)
---   SW0 = '1', SW1 soft_clip_sw = '1'  -> soft clip
---   SW0 = '1', SW1 soft_clip_sw = '0'  -> hard clip
+-- The mux picks one, from two on/off bits that ctrl_regs gives (from the
+-- switches, or from the PC once it takes control; see UART below):
+--   distortion (SW0) off                -> dry (soft/hard ignored)
+--   distortion on, soft (SW1) on        -> soft clip
+--   distortion on, soft (SW1) off       -> hard clip
 --
 -- Tremolo (effect #3): tremolo (tremolo_stage) turns the volume up and down
 -- g_tremolo_rate_hz times a second, dipping to 1 - g_tremolo_depth. It
 -- comes after the distortion: a clipper squashes level changes, so a
 -- tremolo in front of it would be mostly flattened out.
---   SW2 tremolo_sw = '1' -> tremolo on, '0' -> passed straight through
+--   tremolo (SW2, or the PC) on -> tremolo, off -> passed straight through
 --
 -- Effects go before soft_start, so its mute and fade-in apply to the
 -- effected signal.
@@ -55,7 +56,10 @@
 --
 -- Generics: g_mute_samples and g_ramp_bits pass straight through to
 -- soft_start (defaults are the hardware values: 3 s mute, 42.7 ms ramp;
--- top_tb makes them tiny). g_gain is output_gain_stage's gain in Q3.15
+-- top_tb makes them tiny). g_gain, g_drive_gain and g_threshold are now the
+-- power-up defaults of ctrl_regs' registers 0x01..0x03, which the PC can
+-- change (passed in as g_gain / 2**2 etc.: the registers are Q3.13 and
+-- Q0.16, so their bottom 2 / 7 bits are dropped). g_gain is the output gain in Q3.15
 -- (1.0 = 32768): default 1024 = 1/32 = -30.1 dB, line level for the PC's
 -- USB mic input; top_tb uses 1.0 so it can check exact pass-through.
 -- g_drive_gain (Q3.15) and g_threshold (Q0.23) set the distortion. Defaults
@@ -74,14 +78,19 @@
 -- straight to i2s_tx instead of the audio path, to check the DAC and line
 -- out with nothing plugged into the line in. Leave it false for normal use.
 --
--- UART (uart: uart_rx + transmit FIFO + uart_tx, 8N1): the Arty's USB-UART,
--- uart_txd_in (A9, PC -> FPGA) and uart_rxd_out (D10, FPGA -> PC). Open the
--- board's COM port in a terminal at 115 200 baud, 8N1. For now an echo
--- test: every byte received is queued straight back (rx_data / rx_valid
--- wired into tx_data / tx_valid through s_uart_rx_data / s_uart_rx_valid).
--- A command decoder will replace the echo, to switch the effects and set
--- their parameters from the PC. g_uart_clks_per_bit = s_clk / baud rate:
--- 853 for 115 200 at 98.305 MHz (+0.04 %); top_tb makes it small.
+-- PC control over the UART: the Arty's USB-UART, uart_txd_in (A9, PC ->
+-- FPGA) and uart_rxd_out (D10, FPGA -> PC), 115 200 baud 8N1.
+--   uart (uart_rx + transmit FIFO + uart_tx) -> cmd_decoder (3-byte
+--   commands, replies ACK / NAK / CAN, reads reply ACK + 2 bytes) ->
+--   ctrl_regs (registers: 0x00 control, 0x01 output gain, 0x02 drive,
+--   0x03 threshold, 0x10 live state, 0x7F version).
+-- ctrl_regs gives the effects their on/off bits (the switches while
+-- register 0x00 bit 7 is '0', which is how it starts; the PC's bits once
+-- it sets bit 7) and their gains and threshold. With no PC commands the
+-- pedal behaves exactly as with the switches and generics alone.
+-- PC side: model/fx.py (write / read / status). Protocol and register map:
+-- docs/uart.md section 5. g_uart_clks_per_bit = s_clk / baud rate: 853 for
+-- 115 200 at 98.305 MHz (+0.04 %); top_tb makes it small.
 --
 -- Pins: constraints/Arty-A7-35-Master.xdc. Testbench: sim/top_tb.vhd.
 
@@ -199,8 +208,32 @@ architecture rtl of top is
     signal s_tremolo_meta : std_logic := '0'; -- FF1: may go metastable
     signal s_tremolo      : std_logic := '0'; -- FF2: clean SW2, '1' = tremolo on
 
-    signal s_uart_rx_data  : std_logic_vector(7 downto 0); -- byte from the PC
-    signal s_uart_rx_valid : std_logic;
+    -- uart -> cmd_decoder: bytes from the PC.
+    signal s_uart_rx_data        : std_logic_vector(7 downto 0); -- byte from the PC
+    signal s_uart_rx_valid       : std_logic;                    -- one-clock pulse: a good byte
+    signal s_uart_rx_frame_error : std_logic;                    -- one-clock pulse: a bad byte
+
+    -- cmd_decoder -> uart: reply bytes to the PC (ACK / NAK / CAN, read values).
+    signal s_cmd_tx_data  : std_logic_vector(7 downto 0); -- byte to the PC
+    signal s_cmd_tx_valid : std_logic;                    -- one-clock pulse: queue it
+
+    -- cmd_decoder -> ctrl_regs: the register addressed, and a write.
+    signal s_cmd_reg_addr  : std_logic_vector(7 downto 0);  -- bit 7 read flag, 6..0 register
+    signal s_cmd_reg_data  : std_logic_vector(15 downto 0); -- value to write
+    signal s_cmd_reg_write : std_logic;                     -- one-clock pulse: write it
+
+    -- ctrl_regs -> cmd_decoder: answers about s_cmd_reg_addr (no clock).
+    signal s_ctrl_addr_valid    : std_logic;                     -- the register exists
+    signal s_ctrl_addr_writable : std_logic;                     -- it can be written
+    signal s_ctrl_rdata         : std_logic_vector(15 downto 0); -- its value, for a read
+
+    -- ctrl_regs -> the effects: on/off (switches or PC) and the settings.
+    signal s_fx_distortion : std_logic;             -- '1' = distortion on
+    signal s_fx_soft       : std_logic;             -- '1' = soft clip, '0' = hard
+    signal s_fx_tremolo    : std_logic;             -- '1' = tremolo on
+    signal s_out_gain      : signed(17 downto 0);   -- output gain, Q3.15
+    signal s_drive_gain    : signed(17 downto 0);   -- drive before the clip, Q3.15
+    signal s_threshold     : unsigned(22 downto 0); -- clip level, Q0.23
 
 begin
 
@@ -246,28 +279,28 @@ begin
             sample_out_valid => s_rx_sample_valid
         );
 
-    -- Distortion, part 1, drive: a fixed gain (g_drive_gain) that pushes the
-    -- signal up into the clip. Default x2.0.
+    -- Distortion, part 1, drive: a gain (s_drive_gain from ctrl_regs) that
+    -- pushes the signal up into the clip. Default x2.0 (g_drive_gain).
     drive_gain_stage : entity work.gain_stage
         port map (
             clk              => s_clk,
             reset            => s_reset,
             sample_in        => s_rx_sample,
             sample_in_valid  => s_rx_sample_valid,
-            gain             => to_signed(g_drive_gain, 18),
+            gain             => s_drive_gain,
             sample_out       => s_drive_sample,
             sample_out_valid => s_drive_sample_valid
         );
 
-    -- Distortion, part 2, clip: flattens every sample beyond +/- g_threshold.
-    -- Default 0.125.
+    -- Distortion, part 2, clip: flattens every sample beyond +/- s_threshold
+    -- (from ctrl_regs). Default 0.125 (g_threshold).
     clip_stage : entity work.hard_clip_stage
         port map (
             clk              => s_clk,
             reset            => s_reset,
             sample_in        => s_drive_sample,
             sample_in_valid  => s_drive_sample_valid,
-            threshold        => to_unsigned(g_threshold, 23),
+            threshold        => s_threshold,
             sample_out       => s_clip_sample,
             sample_out_valid => s_clip_sample_valid
         );
@@ -318,14 +351,15 @@ begin
             sample_out_valid => s_soft_sample_valid
         );
 
-    -- Output level: a fixed gain (g_gain), last before the DAC.
+    -- Output level: a gain (s_out_gain from ctrl_regs), last before the DAC.
+    -- Default 1/32 (g_gain).
     output_gain_stage : entity work.gain_stage
         port map (
             clk              => s_clk,
             reset            => s_reset,
             sample_in        => s_soft_sample,
             sample_in_valid  => s_soft_sample_valid,
-            gain             => to_signed(g_gain, 18),
+            gain             => s_out_gain,
             sample_out       => s_gain_sample,
             sample_out_valid => s_gain_sample_valid
         );
@@ -340,10 +374,9 @@ begin
             sample_out_valid => s_tone_sample_valid
         );
 
-    -- USB-UART: echo test. rx <- uart_txd_in (from the PC), tx ->
-    -- uart_rxd_out (to the PC). tx_data / tx_valid are the byte just
-    -- received, so every byte from the PC is queued straight back. Later a
-    -- command decoder goes between rx and tx.
+    -- USB-UART: rx <- uart_txd_in (from the PC), tx -> uart_rxd_out (to the
+    -- PC). Received bytes go to cmd_decoder; its replies come back in on
+    -- tx_data / tx_valid and are queued in the transmit FIFO.
     uart_stage : entity work.uart
         generic map (
             g_clks_per_bit => g_uart_clks_per_bit
@@ -352,12 +385,12 @@ begin
             clk            => s_clk,
             reset          => s_reset,
             rx             => uart_txd_in,
-            tx_data        => s_uart_rx_data,
-            tx_valid       => s_uart_rx_valid,
+            tx_data        => s_cmd_tx_data,
+            tx_valid       => s_cmd_tx_valid,
             tx             => uart_rxd_out,
             rx_data        => s_uart_rx_data,
             rx_valid       => s_uart_rx_valid,
-            rx_frame_error => open,
+            rx_frame_error => s_uart_rx_frame_error,
             tx_full        => open,
             tx_overflow    => open
         );
@@ -368,6 +401,55 @@ begin
                          s_gain_sample;
     s_tx_sample_valid <= s_tone_sample_valid when g_test_tone else
                          s_gain_sample_valid;
+
+    -- Command decoder: decodes the PC's commands, and answers them. It
+    -- sends the register writes to ctrl_regs, and the register reads back to
+    -- the PC. It also sends the register numbers to ctrl_regs, so it can
+    -- answer whether the register exists and is writable.
+    cmd_stage : entity work.cmd_decoder
+        port map (
+            clk               => s_clk,
+            reset             => s_reset,
+            rx_data           => s_uart_rx_data,
+            rx_valid          => s_uart_rx_valid,
+            rx_frame_error    => s_uart_rx_frame_error,
+            tx_data           => s_cmd_tx_data,
+            tx_valid          => s_cmd_tx_valid,
+            reg_addr          => s_cmd_reg_addr,
+            reg_data          => s_cmd_reg_data,
+            reg_write         => s_cmd_reg_write,
+            reg_addr_valid    => s_ctrl_addr_valid,
+            reg_addr_writable => s_ctrl_addr_writable,
+            reg_rdata         => s_ctrl_rdata
+        );
+
+    -- Control registers: the power-up defaults are top's generics, converted
+    -- to the 16-bit register formats (dropping n fraction bits = / 2**n).
+    ctrl_stage : entity work.ctrl_regs
+        generic map (
+            g_default_out_gain  => g_gain / 2 ** 2,
+            g_default_drive     => g_drive_gain / 2 ** 2,
+            g_default_threshold => g_threshold / 2 ** 7
+        )
+        port map (
+            clk               => s_clk,
+            reset             => s_reset,
+            reg_addr          => s_cmd_reg_addr,
+            reg_data          => s_cmd_reg_data,
+            reg_write         => s_cmd_reg_write,
+            sw_distortion     => s_distortion,
+            sw_soft           => s_soft_select,
+            sw_tremolo        => s_tremolo,
+            reg_addr_valid    => s_ctrl_addr_valid,
+            reg_addr_writable => s_ctrl_addr_writable,
+            reg_rdata         => s_ctrl_rdata,
+            fx_distortion     => s_fx_distortion,
+            fx_soft           => s_fx_soft,
+            fx_tremolo        => s_fx_tremolo,
+            out_gain          => s_out_gain,
+            drive_gain        => s_drive_gain,
+            threshold         => s_threshold
+        );
 
     -- Reset synchroniser: two flip-flops on s_clk.
     reset_sync : process (s_clk) is
@@ -405,28 +487,29 @@ begin
     s_reset_raw       <= reset_btn or not s_locked;
     led_locked        <= s_locked;
 
-    -- Distortion mux: SW0 off -> dry, straight from i2s_rx (SW1 ignored);
-    -- SW0 on -> SW1 picks soft clip ('1') or hard clip ('0'). Sample and
-    -- valid switch together. The paths have different delays (hard 2
-    -- clocks, soft 3, dry 0); that's fine, the blocks after only act on
-    -- valid.
-    -- The last branch has no condition, so every switch setting has an
-    -- answer (no latch).
-    s_fx_sample <= s_rx_sample when s_distortion = '0' else         -- SW0 off: dry
-                   s_soft_clip_sample when s_soft_select = '1' else -- SW1 on: soft clip
-                   s_clip_sample;                                   -- SW1 off: hard clip
+    -- Distortion mux, from ctrl_regs' bits (switch or PC): distortion off ->
+    -- dry, straight from i2s_rx (soft ignored); distortion on -> soft picks
+    -- soft clip ('1') or hard clip ('0'). Sample and valid switch together.
+    -- The paths have different delays (hard 2 clocks, soft 3, dry 0); that's
+    -- fine, the blocks after only act on valid.
+    -- The last branch has no condition, so every setting has an answer (no
+    -- latch).
+    s_fx_sample <= s_rx_sample when s_fx_distortion = '0' else  -- distortion off: dry
+                   s_soft_clip_sample when s_fx_soft = '1' else -- soft on: soft clip
+                   s_clip_sample;                               -- soft off: hard clip
 
-    s_fx_sample_valid <= s_rx_sample_valid when s_distortion = '0' else
-                         s_soft_clip_sample_valid when s_soft_select = '1' else
+    s_fx_sample_valid <= s_rx_sample_valid when s_fx_distortion = '0' else
+                         s_soft_clip_sample_valid when s_fx_soft = '1' else
                          s_clip_sample_valid;
 
-    -- Tremolo mux: SW2 off -> the distortion mux's output, straight
-    -- through; SW2 on -> the tremolo's. The tremolo runs all the time, so
-    -- switching is instant (its LFO keeps its place either way).
-    s_mod_sample <= s_fx_sample when s_tremolo = '0' else -- SW2 off: no tremolo
-                    s_tremolo_sample;                     -- SW2 on: tremolo
+    -- Tremolo mux, from ctrl_regs' bit (switch or PC): off -> the distortion
+    -- mux's output, straight through; on -> the tremolo's. The tremolo runs
+    -- all the time, so switching is instant (its LFO keeps its place either
+    -- way).
+    s_mod_sample <= s_fx_sample when s_fx_tremolo = '0' else -- tremolo off
+                    s_tremolo_sample;                        -- tremolo on
 
-    s_mod_sample_valid <= s_fx_sample_valid when s_tremolo = '0' else
+    s_mod_sample_valid <= s_fx_sample_valid when s_fx_tremolo = '0' else
                           s_tremolo_sample_valid;
 
     -- One set of I2S clocks for both Pmod rows.

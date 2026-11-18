@@ -116,10 +116,19 @@ every session (either PC); update it at the end.**
     pyserial added to requirements (other PC: pip install -r again).
     Lessons: Ruff checks hints exist, not that they are true (read_reg
     returned bytes); a lost ACK makes the retry write twice, harmless.
-  - **Next:** cmd_decoder + ctrl_regs into top.vhd in place of the echo
-    (ctrl_regs' fx_* drive the muxes, out_gain / drive_gain / threshold
-    the effects), top_tb update, then build on the Vivado PC and try
-    `fx.py --port COMx status`.
+  - **PC control wired into top.vhd** (2026-11-18, user-written): echo
+    replaced by uart -> cmd_stage (cmd_decoder) -> ctrl_stage (ctrl_regs);
+    defaults from top's generics `/ 2**2` (Q3.15 -> Q3.13) and `/ 2**7`
+    (Q0.23 -> Q0.16); the muxes use s_fx_*, the gain stages and clipper
+    s_out_gain / s_drive_gain / s_threshold. Header and comments by
+    Claude. top_tb check 7 now sends reads (version, live, unknown) and
+    checks ACK / value / NAK. **All four top_tb modes pass in GHDL** with
+    a scratch stand-in for the Clocking Wizard (not in the repo: Vivado
+    would see two clk_wiz_audio). VSG removes comments inside generic /
+    port maps.
+  - **Next (Vivado PC):** see docs/vivado_todo.md: re-run
+    create_project.tcl, top_tb all modes with the real IP, build, then
+    `fx.py --port COMx status` and a write, e.g. `write control 0x85`.
 
 ## Effect #4: tremolo — on the board (2026-11-13, branch `effect-tremolo`)
 
