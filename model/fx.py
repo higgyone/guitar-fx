@@ -290,8 +290,17 @@ def main() -> None:
         port: Port = FakeFpga()
     else:
         import serial
+        from serial.tools import list_ports
 
-        port = serial.Serial(args.port, BAUD, timeout=REPLY_TIMEOUT_S)
+        try:
+            port = serial.Serial(args.port, BAUD, timeout=REPLY_TIMEOUT_S)
+        except serial.SerialException as err:
+            found = [p.device for p in list_ports.comports()]
+            raise SystemExit(
+                f"error: can't open {args.port}. Ports on this PC: "
+                f"{', '.join(found) or 'none (is the Arty plugged in?)'}. "
+                f"Pick one with --port, or use --fake."
+            ) from err
 
     try:
         if args.cmd == "write":
