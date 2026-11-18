@@ -96,11 +96,19 @@ every session (either PC); update it at the end.**
     mistakes when the sim runs; a port's width is set by what connects
     to it, pick bits inside with a slice; `16#10#` is a number, `x"10"`
     a bit string.
-  - **Next: cmd_decoder read path** — on a read (reg_addr(7) = '1') send
-    ACK + reg_rdata hi + lo on three consecutive clocks (new states, copy
-    reg_rdata on the first); NAK writes where reg_addr_writable = '0'.
-    Then the Python script (`model/`, pyserial, user-written), then
-    cmd_decoder + ctrl_regs into top.vhd in place of the echo.
+  - **cmd_decoder read path done** (2026-11-18, user-written logic): new
+    inputs reg_addr_writable / reg_rdata; st_lo decides in order: not
+    valid -> NAK; read flag -> snapshot reg_rdata into s_rd_data, ACK,
+    st_rd_hi -> st_rd_lo (one byte each, consecutive clocks); writable ->
+    write + ACK; else NAK. `sim/cmd_decoder_tb.vhd` reworked to log every
+    reply byte; 12 tests incl. reads, read-only NAK, unknown read,
+    write-then-read, and a snapshot check (fake register changes every
+    clock; a decoder reading reg_rdata live fails it). Header by Claude.
+    Lessons: `elsif` vs `else if`; a read needs no pulse (the value is
+    always there), a write does; snapshot multi-byte values.
+  - **Next:** the Python script (`model/`, pyserial, user-written:
+    write / read / status, retries on CAN or silence), then cmd_decoder +
+    ctrl_regs into top.vhd in place of the echo (Vivado PC to build).
 
 ## Effect #4: tremolo — on the board (2026-11-13, branch `effect-tremolo`)
 

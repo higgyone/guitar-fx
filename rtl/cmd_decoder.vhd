@@ -1,19 +1,32 @@
 -- cmd_decoder: turns commands from the PC (bytes from the uart block) into
--- register writes, and answers each command with one reply byte.
+-- register writes and reads, and answers each command with one reply.
 --
 -- A command is 3 bytes, back-to-back:
---   [ register number ] [ value high byte ] [ value low byte ]
--- Reply (one byte per command, sent through the uart's transmit FIFO):
---   0x06 ACK  written
---   0x15 NAK  the register does not exist (reg_addr_valid '0'): not written;
---             resending will not help
+--   write: [ register ]        [ value high ] [ value low ]
+--   read:  [ 0x80 | register ] [ ignored ]    [ ignored ]
+-- Byte 1 bit 7 is the read flag; bits 6..0 the register number.
+-- Replies (sent through the uart's transmit FIFO):
+--   0x06 ACK                    written
+--   0x06 ACK, value hi, lo      read (3 bytes on 3 consecutive clocks)
+--   0x15 NAK  the register does not exist, or a write to a read-only one:
+--             nothing done; resending will not help
 --   0x18 CAN  the command arrived broken (a byte missing or bad): resend
 --
 -- States (which byte is expected next):
 --   st_reg     byte 1: keep it as the register number (s_reg_addr)
 --   st_hi      byte 2: keep it as the high byte (s_data_hi)
---   st_lo      byte 3: value = high & low; reg_addr_valid '1' -> pulse
---              reg_write and reply ACK, else reply NAK; back to st_reg
+--   st_lo      byte 3, then in this order:
+--                not reg_addr_valid           -> NAK
+--                read flag set                -> snapshot reg_rdata into
+--                                                s_rd_data, ACK, st_rd_hi
+--                reg_addr_writable            -> pulse reg_write, ACK
+--                else (read-only)             -> NAK
+--              (validity first, read before writable: a read of a read-only
+--              register must still work)
+--   st_rd_hi   send s_rd_data high byte (one clock), then st_rd_lo
+--   st_rd_lo   send s_rd_data low byte (one clock), then st_reg
+--              The snapshot keeps both bytes from the same moment, even if
+--              the register (e.g. the live state) changes in between.
 --   st_discard after a broken command: ignore bytes until the line has been
 --              quiet for the timeout, then reply CAN once and go to st_reg.
 --              Without it, the rest of a broken command would start a new
@@ -27,8 +40,9 @@
 -- g_timeout_clks = 98 305 = 1 ms: far longer than the gap inside a command
 -- (bytes are back-to-back), far shorter than the PC's wait for a reply.
 --
--- reg_addr comes straight from s_reg_addr (byte 1), so ctrl_regs answers
--- reg_addr_valid long before byte 3 arrives, when it is checked.
+-- reg_addr comes straight from s_reg_addr (byte 1, read flag included), so
+-- ctrl_regs answers reg_addr_valid, reg_addr_writable and reg_rdata long
+-- before byte 3 arrives, when they are checked.
 --
 -- Testbench: sim/cmd_decoder_tb.vhd. Design notes: docs/uart.md, section 5.
 
@@ -41,17 +55,19 @@ entity cmd_decoder is
         g_timeout_clks : natural := 98305 -- longest gap between the bytes of one command, in clocks (98305 = 1 ms)
     );
     port (
-        clk            : in    std_logic;                     -- s_clk, 98.305 MHz
-        reset          : in    std_logic;                     -- synchronous, active high
-        rx_data        : in    std_logic_vector(7 downto 0);  -- received byte (meaningful on rx_valid)
-        rx_valid       : in    std_logic;                     -- one-clock pulse: rx_data holds a good byte
-        rx_frame_error : in    std_logic;                     -- one-clock pulse: stop bit was '0', byte discarded
-        reg_addr_valid : in    std_logic;                     -- level from ctrl_regs: '1' while reg_addr exists
-        tx_data        : out   std_logic_vector(7 downto 0);  -- reply byte to the PC: ACK, NAK or CAN
-        tx_valid       : out   std_logic;                     -- one-clock pulse: queue tx_data in the uart FIFO
-        reg_addr       : out   std_logic_vector(7 downto 0);  -- register number: byte 1 of the command
-        reg_data       : out   std_logic_vector(15 downto 0); -- value: byte 2 (high) & byte 3 (low)
-        reg_write      : out   std_logic                      -- one-clock pulse: write reg_data to reg_addr
+        clk               : in    std_logic;                     -- s_clk, 98.305 MHz
+        reset             : in    std_logic;                     -- synchronous, active high
+        rx_data           : in    std_logic_vector(7 downto 0);  -- received byte (meaningful on rx_valid)
+        rx_valid          : in    std_logic;                     -- one-clock pulse: rx_data holds a good byte
+        rx_frame_error    : in    std_logic;                     -- one-clock pulse: stop bit was '0', byte discarded
+        reg_addr_valid    : in    std_logic;                     -- level from ctrl_regs: '1' while reg_addr exists
+        reg_addr_writable : in    std_logic;                     -- level from ctrl_regs: '1' if writable
+        reg_rdata         : in    std_logic_vector(15 downto 0); -- the value reg_addr points to
+        tx_data           : out   std_logic_vector(7 downto 0);  -- reply byte to the PC: ACK, NAK or CAN
+        tx_valid          : out   std_logic;                     -- one-clock pulse: queue tx_data in the uart FIFO
+        reg_addr          : out   std_logic_vector(7 downto 0);  -- register number: byte 1 of the command
+        reg_data          : out   std_logic_vector(15 downto 0); -- value: byte 2 (high) & byte 3 (low)
+        reg_write         : out   std_logic                      -- one-clock pulse: write reg_data to reg_addr
     );
 end entity cmd_decoder;
 
@@ -63,7 +79,7 @@ architecture rtl of cmd_decoder is
     --   st_lo      byte 3, value low byte: write and reply
     --   st_discard a broken command: wait for 1 ms of silence, then reply CAN
 
-    type t_state is (st_reg, st_hi, st_lo, st_discard);
+    type t_state is (st_reg, st_hi, st_lo, st_discard, st_rd_hi, st_rd_lo);
 
     signal s_state : t_state := st_reg;
 
@@ -85,6 +101,7 @@ architecture rtl of cmd_decoder is
     signal s_tx_valid  : std_logic                             := '0';
     signal s_reg_data  : std_logic_vector(15 downto 0)         := (others => '0');
     signal s_reg_write : std_logic                             := '0';
+    signal s_rd_data   : std_logic_vector(15 downto 0)         := (others => '0'); -- read reply snapshot
 
 begin
 
@@ -131,14 +148,22 @@ begin
 
                         if (rx_valid = '1') then
                             s_reg_data <= s_data_hi & rx_data;
-                            if (reg_addr_valid = '1') then
-                                s_reg_write <= '1';                        -- known register: write it
-                                s_tx_data   <= c_ack;                      -- reply ACK
-                            else
-                                s_tx_data <= c_nak;                        -- unknown register: no write, NAK
+                            if (reg_addr_valid = '0') then                 -- no such register
+                                s_tx_data <= c_nak;
+                                s_state   <= st_reg;
+                            elsif (s_reg_addr(7) = '1') then               -- read
+                                s_rd_data <= reg_rdata;                    -- snapshot the value
+                                s_tx_data <= c_ack;
+                                s_state   <= st_rd_hi;                     -- then send the value
+                            elsif (reg_addr_writable = '1') then           -- write
+                                s_reg_write <= '1';
+                                s_tx_data   <= c_ack;
+                                s_state     <= st_reg;
+                            else                                           -- write to a read-only register
+                                s_tx_data <= c_nak;
+                                s_state   <= st_reg;
                             end if;
-                            s_tx_valid <= '1';                             -- send the reply (ACK or NAK)
-                            s_state    <= st_reg;
+                            s_tx_valid <= '1';                             -- one reply byte, whichever it is
                         elsif (rx_frame_error = '1') then
                             s_state <= st_discard;                         -- a bad third byte: discard the rest
                         elsif (s_timer = g_timeout_clks - 1) then
@@ -152,6 +177,18 @@ begin
                             s_tx_valid <= '1';
                             s_state    <= st_reg;
                         end if;
+
+                    when st_rd_hi =>
+
+                        s_tx_data  <= s_rd_data(15 downto 8);
+                        s_tx_valid <= '1';
+                        s_state    <= st_rd_lo;
+
+                    when st_rd_lo =>
+
+                        s_tx_data  <= s_rd_data(7 downto 0);
+                        s_tx_valid <= '1';
+                        s_state    <= st_reg;
 
                 end case;
 
