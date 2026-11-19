@@ -141,8 +141,8 @@ every session (either PC); update it at the end.**
     filter: biquad theory refresher, Python model with a frequency
     response plot (user-written), then VHDL with coefficient
     quantisation — recommended; (2) UART stage 2: tremolo rate/depth
-    as ports + two registers; (3) soft-clip timing margin (extra
-    pipeline register; check timing on the Vivado PC).
+    as ports + two registers; ~~(3) soft-clip timing margin~~ done
+    2026-11-19, see the soft clip section.
 
 ## Effect #4: tremolo — on the board (2026-11-13, branch `effect-tremolo`)
 
@@ -234,6 +234,19 @@ every session (either PC); update it at the end.**
   before the multiply, and/or (2) add a second register on the ROM read so
   Vivado uses the block RAM's built-in output register (~2.45 → ~0.8 ns).
   Each adds a clock of latency (harmless: ~2000 clocks per sample).
+  **Done (2026-11-19, option 1, user-designed):** new stage 2 registers
+  the gap (with T(a), f, sign, valid copies); multiply in stage 3, add in
+  stage 4; latency 3 -> 4 clocks. soft_clip_stage_tb (2064 samples) and
+  top_tb mode 2 pass; **WNS +0.722 -> +1.608 ns**. Option 2 stays in
+  reserve.
+- **Next timing item (not needed yet, 1.608 ns = ~16 % margin):** the
+  worst path is now drive_gain_stage -> hard clip: gain_stage registers
+  only the multiply; its round (42-bit add), overflow check and saturate
+  mux are combinational and share a clock with hard_clip_stage's two
+  24-bit compares against ±threshold (now a ctrl_regs register, no longer
+  a constant). Fix if it ever fails: register gain_stage's output after
+  the saturate (+1 clock in every gain_stage: drive, output gain,
+  tremolo; all valid-gated, so the TBs cope).
 
 ## Effect #2: hard-clip distortion — on the board (2026-11-08, branch `effect-distortion`)
 
