@@ -29,16 +29,21 @@
 --   f   = bits 12..0  of |x|   how far to a + 1  (0 .. 8191, out of 8192)
 --   out = T(a) + ((T(a+1) - T(a)) * f) / 8192    (/ 8192 = drop 13 bits)
 --
--- Pipeline (stages 1 and 2 step every clock; stage 3 loads only for a real
+-- Pipeline (stages 1 to 3 step every clock; stage 4 loads only for a real
 -- sample, so sample_out holds between samples):
 --   before : |x|, a, f from sample_in (not x = -x - 1 never overflows, so
 --            -1.0 needs no special case)
 --   stage 1: read T(a) and T(a+1) (block RAM); register f, sign, valid
---   stage 2: product = gap * f (DSP); carry T(a), sign, valid along
---   stage 3: sum = T(a) + product bits 36..13, with its sign
+--   stage 2: gap = T(a+1) - T(a); carry T(a), f, sign, valid along
+--   stage 3: product = gap * f (DSP); carry T(a), sign, valid along
+--   stage 4: sum = T(a) + product bits 36..13, with its sign
 --   after  : negative input: invert the sum back (not)
 --
--- Latency: 3 clocks. sample_out_valid pulses for one clock, three clocks
+-- The subtract has its own stage for timing: block RAM output -> 24-bit
+-- subtract -> DSP input in one clock was the worst path in the design
+-- (WNS +0.6..0.7 ns); split, the build has WNS +1.608 ns.
+--
+-- Latency: 4 clocks. sample_out_valid pulses for one clock, four clocks
 -- after sample_in_valid. Reset clears the valid chain, so a sample in
 -- flight at reset never comes out.
 
@@ -104,21 +109,28 @@ architecture rtl of soft_clip_stage is
     signal s_valid_1    : std_logic := '0';      -- '1': a real sample is in stage 1
 
     -- Stage 2 (every clock):
-    signal s_t_a_2     : signed(23 downto 0); -- T(a), carried along to the add
-    signal s_neg_2     : std_logic := '0';    -- sign
-    signal s_valid_2   : std_logic := '0';    -- '1': a real sample is in stage 2
-    signal s_product_2 : signed(37 downto 0); -- (T(a+1) - T(a)) * f, 24 + 14 bits
+    signal s_t_a_2      : signed(23 downto 0);   -- T(a), carried along to the add
+    signal s_neg_2      : std_logic := '0';      -- sign
+    signal s_valid_2    : std_logic := '0';      -- '1': a real sample is in stage 2
+    signal s_gap_2      : signed(23 downto 0);   -- T(a+1) - T(a): 0 .. ~24700, fits 24 bits
+    signal s_fraction_2 : unsigned(12 downto 0); -- f, carried along to the multiply
 
-    -- Stage 3 (only when s_valid_2 = '1', so it holds between samples):
-    signal s_sum_3 : signed(23 downto 0); -- T(a) + product / 8192, for |sample|
-    signal s_neg_3 : std_logic := '0';    -- its sign, loaded with it
+    -- Stage 3 (every clock):
+    signal s_neg_3     : std_logic := '0';    -- sign
+    signal s_product_3 : signed(37 downto 0); -- gap * f, 24 + 14 bits
+    signal s_t_a_3     : signed(23 downto 0); -- T(a), carried along to the add
+    signal s_valid_3   : std_logic := '0';    -- '1': a real sample is in stage 3
+
+    -- Stage 4 (only when s_valid_3 = '1', so it holds between samples):
+    signal s_sum_4 : signed(23 downto 0); -- T(a) + product / 8192, for |sample|
+    signal s_neg_4 : std_logic := '0';    -- its sign, loaded with it
 
 begin
 
-    -- The three pipeline stages. Every line reads the values from before
+    -- The four pipeline stages. Every line reads the values from before
     -- the edge, so each stage works on the sample the stage before it held
-    -- one clock earlier; the _1 / _2 / _3 copies of sign and valid keep
-    -- them lined up with their sample's data.
+    -- one clock earlier; the _1 .. _4 copies of sign and valid keep them
+    -- lined up with their sample's data.
     soft_clip_proc : process (clk) is
     begin
 
@@ -131,29 +143,37 @@ begin
             s_neg_1      <= sample_in(23);
             s_valid_1    <= sample_in_valid;
 
-            -- Stage 2: gap * f (registered: DSP). '0' & f keeps f positive
-            -- as a signed number. The gap is never negative (the curve only
-            -- rises).
-            s_product_2 <= (s_t_a1_1 - s_t_a_1) * signed('0' & s_fraction_1);
-            s_t_a_2     <= s_t_a_1;
-            s_neg_2     <= s_neg_1;
-            s_valid_2   <= s_valid_1;
+            -- Stage 2: the gap, on its own (straight off the block RAM
+            -- output). Never negative: the curve only rises.
+            s_gap_2      <= s_t_a1_1 - s_t_a_1;
+            s_t_a_2      <= s_t_a_1;
+            s_fraction_2 <= s_fraction_1;
+            s_neg_2      <= s_neg_1;
+            s_valid_2    <= s_valid_1;
 
-            sample_out_valid <= s_valid_2;                                    -- one clock pulse, with stage 3's load
+            -- Stage 3: gap * f (registered: DSP). '0' & f keeps f positive
+            -- as a signed number.
+            s_product_3 <= s_gap_2 * signed('0' & s_fraction_2);
+            s_t_a_3     <= s_t_a_2;
+            s_neg_3     <= s_neg_2;
+            s_valid_3   <= s_valid_2;
+
+            sample_out_valid <= s_valid_3;                                    -- one clock pulse, with stage 4's load
 
             if (reset = '1') then                                             -- last assignment wins: overrides the copies above
-                s_sum_3          <= (others => '0');
-                s_neg_3          <= '0';
+                s_sum_4          <= (others => '0');
+                s_neg_4          <= '0';
                 s_valid_1        <= '0';
                 s_valid_2        <= '0';
+                s_valid_3        <= '0';
                 sample_out_valid <= '0';
-            elsif (s_valid_2 = '1') then
-                -- Stage 3: / 8192 = keep product bits 36..13 (24 bits).
+            elsif (s_valid_3 = '1') then
+                -- Stage 4: / 8192 = keep product bits 36..13 (24 bits).
                 -- Bits 37..28 are always 0 (product < 24700 * 8192 < 2**28),
                 -- and the sum can't overflow: it is at most T(a+1).
-                s_sum_3 <= s_t_a_2 + s_product_2(36 downto 13);
-                s_neg_3 <= s_neg_2;
-            end if;                                                           -- no else: s_sum_3, s_neg_3 hold between samples
+                s_sum_4 <= s_t_a_3 + s_product_3(36 downto 13);
+                s_neg_4 <= s_neg_3;
+            end if;                                                           -- no else: s_sum_4, s_neg_4 hold between samples
         end if;
 
     end process soft_clip_proc;
@@ -166,9 +186,9 @@ begin
     s_address  <= unsigned(s_pos(22 downto 13));
     s_fraction <= unsigned(s_pos(12 downto 0));
 
-    -- After the registers: the sign back, with s_neg_3 (same sample as
-    -- s_sum_3).
-    sample_out <= not s_sum_3 when s_neg_3 = '1' else
-                  s_sum_3;
+    -- After the registers: the sign back, with s_neg_4 (same sample as
+    -- s_sum_4).
+    sample_out <= not s_sum_4 when s_neg_4 = '1' else
+                  s_sum_4;
 
 end architecture rtl;
