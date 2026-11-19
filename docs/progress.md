@@ -63,9 +63,9 @@ every session (either PC); update it at the end.**
     Claude. top_tb check 7 (Claude): "Hi!" + CR back-to-back after lock
     must echo in order (g_uart_clks_per_bit 16). Analyses in GHDL;
     **top_tb not yet run** (needs Vivado: Clocking Wizard IP).
-  - **Still to do (Vivado PC):** re-run create_project.tcl, run top_tb (all
-    modes), build, terminal on the Arty COM port at 115200 8N1: type, then
-    paste a long line.
+  - ~~**Still to do (Vivado PC):** echo test in a terminal~~ superseded:
+    the echo was replaced by PC control before it reached the board; the
+    UART path was proved by the fx.py test instead (below).
   - **Command protocol decided** (2026-11-16, uart.md section 5): binary,
     3 bytes [register][value hi][value lo] from a Python script; replies
     ACK 0x06 / NAK 0x15 (unknown register) / CAN 0x18 (broken, resend);
@@ -126,9 +126,17 @@ every session (either PC); update it at the end.**
     a scratch stand-in for the Clocking Wizard (not in the repo: Vivado
     would see two clk_wiz_audio). VSG removes comments inside generic /
     port maps.
-  - **Next (Vivado PC):** see docs/vivado_todo.md: re-run
-    create_project.tcl, top_tb all modes with the real IP, build, then
-    `fx.py --port COMx status` and a write, e.g. `write control 0x85`.
+  - **✅ PC control works on the board** (2026-11-19, Vivado PC):
+    create_project.tcl re-run (picks up the UART files); `top_tb` passes
+    in all four modes with the real Clocking Wizard; bitstream WNS
+    +0.722 ns (was 0.589; placement variation, the soft-clip TODO
+    stands); `fx.py --port COMx status` and `write` both work on the
+    Arty. Lessons: the project's sim runtime is `all`, so
+    `launch_simulation` already runs top_tb to its `finish`; an extra
+    `run all` restarts it past the end (index 63 out of `sent`'s 0..62).
+    Close the sim before changing `g_mode` and clear the generic after.
+    The `.venv` is per PC (gitignored): create it from
+    model/requirements.txt on each machine.
   - **Next on the laptop (options, 2026-11-18):** (1) effect #4 tone
     filter: biquad theory refresher, Python model with a frequency
     response plot (user-written), then VHDL with coefficient
