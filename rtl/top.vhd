@@ -11,6 +11,10 @@
 --                            tremolo mux <+                       |
 --                             (SW2)   |   +------- bypass --------+
 --                                     v
+--                     +-- tone_filter -+
+--          tone mux <-+                +-- (from the tremolo mux)
+--           (SW3)  |  +---- bypass ----+
+--                  v
 --      da_sdin <- i2s_tx <- output_gain_stage <- soft_start
 --
 -- Distortion (effect #2), two kinds:
@@ -30,6 +34,14 @@
 -- comes after the distortion: a clipper squashes level changes, so a
 -- tremolo in front of it would be mostly flattened out.
 --   tremolo (SW2, or the PC) on -> tremolo, off -> passed straight through
+--
+-- Tone (effect #4): tone_filter (tone_stage, a biquad low-pass) cuts the
+-- treble above g_tone_cutoff_hz, 12 dB per octave. Last of the effects, so
+-- it tames the fizz of whichever distortion is on, like a guitar's tone
+-- knob after a pedal.
+--   tone (SW3) on -> filtered, off -> passed straight through
+-- SW3 goes straight to the mux (through its synchroniser), not through
+-- ctrl_regs: the PC can't switch the tone filter yet.
 --
 -- Effects go before soft_start, so its mute and fade-in apply to the
 -- effected signal.
@@ -73,6 +85,9 @@
 -- come out about k / tanh(k) louder, so the soft clip is louder than dry.
 -- g_tremolo_rate_hz (real, Hz) and g_tremolo_depth (real, 0.0 none .. 1.0
 -- dips to silence) set the tremolo: defaults 5 Hz and 0.5 (-6 dB dips).
+-- g_tone_cutoff_hz (real, the -3 dB point) and g_tone_q (real, 0.707 =
+-- smooth, higher = a peak at the cutoff) set the tone filter: defaults
+-- 3 kHz and 0.707.
 --
 -- Test tone: g_test_tone = true sends tone_gen's 1 kHz, -20 dBFS sine
 -- straight to i2s_tx instead of the audio path, to check the DAC and line
@@ -109,6 +124,8 @@ entity top is
         g_soft_drive        : real                                  := 3.0;     -- soft clip drive k (tanh), 3.0 = overdrive
         g_tremolo_rate_hz   : real                                  := 5.0;     -- tremolo speed, Hz
         g_tremolo_depth     : real                                  := 0.5;     -- how far the tremolo dips: 0.0 none .. 1.0 to silence
+        g_tone_cutoff_hz    : real                                  := 3000.0;  -- tone filter cutoff (-3 dB), Hz
+        g_tone_q            : real                                  := 0.707;   -- tone filter Q: 0.707 = smooth (Butterworth)
         g_uart_clks_per_bit : natural                               := 853      -- clocks per UART bit (115 200 baud)
     );
     port (
@@ -117,6 +134,7 @@ entity top is
         distortion_sw : in    std_logic; -- SW0, '1' = distortion on
         soft_clip_sw  : in    std_logic; -- SW1, '1' = soft clip, '0' = hard clip (when SW0 = '1')
         tremolo_sw    : in    std_logic; -- SW2, '1' = tremolo on
+        tone_sw       : in    std_logic; -- SW3, '1' = tone filter on
         ad_sdout      : in    std_logic; -- Pmod AD SDOUT (ADC data in)
         uart_txd_in   : in    std_logic; -- USB-UART: PC -> FPGA (A9)
         uart_rxd_out  : out   std_logic; -- USB-UART: FPGA -> PC (D10)
@@ -177,9 +195,16 @@ architecture rtl of top is
     -- tremolo -> the tremolo mux.
     signal s_tremolo_sample       : signed(23 downto 0);
     signal s_tremolo_sample_valid : std_logic;
-    -- The tremolo mux -> soft_start ("mod": the modulation effects).
+    -- The tremolo mux -> tone_filter and the tone mux ("mod": the
+    -- modulation effects).
     signal s_mod_sample       : signed(23 downto 0);
     signal s_mod_sample_valid : std_logic;
+    -- tone_filter -> the tone mux.
+    signal s_lowpass_sample       : signed(23 downto 0);
+    signal s_lowpass_sample_valid : std_logic;
+    -- The tone mux -> soft_start ("eq": the tone-shaping stage).
+    signal s_eq_sample       : signed(23 downto 0);
+    signal s_eq_sample_valid : std_logic;
     -- soft_start -> output_gain_stage.
     signal s_soft_sample       : signed(23 downto 0);
     signal s_soft_sample_valid : std_logic;
@@ -187,15 +212,15 @@ architecture rtl of top is
     signal s_gain_sample       : signed(23 downto 0);
     signal s_gain_sample_valid : std_logic;
     -- tone_gen -> the test-tone switch.
-    signal s_tone_sample       : signed(23 downto 0);
-    signal s_tone_sample_valid : std_logic;
+    signal s_test_tone_sample       : signed(23 downto 0);
+    signal s_test_tone_sample_valid : std_logic;
     -- The test-tone switch -> i2s_tx.
     signal s_tx_sample       : signed(23 downto 0);
     signal s_tx_sample_valid : std_logic;
 
-    -- Switch synchronisers (SW0, SW1, SW2). All start at '0' (dry; hard clip
-    -- selected; no tremolo), the plain state, until the real switch
-    -- positions arrive two clocks later.
+    -- Switch synchronisers (SW0 .. SW3). All start at '0' (dry; hard clip
+    -- selected; no tremolo; no tone filter), the plain state, until the real
+    -- switch positions arrive two clocks later.
     signal s_distortion_raw  : std_logic;        -- distortion_sw as read (not on s_clk)
     signal s_distortion_meta : std_logic := '0'; -- FF1: may go metastable
     signal s_distortion      : std_logic := '0'; -- FF2: clean SW0, '1' = distortion on
@@ -207,6 +232,10 @@ architecture rtl of top is
     signal s_tremolo_raw  : std_logic;        -- tremolo_sw as read (not on s_clk)
     signal s_tremolo_meta : std_logic := '0'; -- FF1: may go metastable
     signal s_tremolo      : std_logic := '0'; -- FF2: clean SW2, '1' = tremolo on
+
+    signal s_tone_raw  : std_logic;        -- tone_sw as read (not on s_clk)
+    signal s_tone_meta : std_logic := '0'; -- FF1: may go metastable
+    signal s_tone      : std_logic := '0'; -- FF2: clean SW3, '1' = tone filter on
 
     -- uart -> cmd_decoder: bytes from the PC.
     signal s_uart_rx_data        : std_logic_vector(7 downto 0); -- byte from the PC
@@ -337,6 +366,22 @@ begin
             sample_out_valid => s_tremolo_sample_valid
         );
 
+    -- Tone: a biquad low-pass on whatever the tremolo mux sends. Its
+    -- g_sample_rate is left at 48 kHz, as the tremolo's (0.005 % off).
+    tone_filter : entity work.tone_stage
+        generic map (
+            g_cutoff_hz => g_tone_cutoff_hz,
+            g_q         => g_tone_q
+        )
+        port map (
+            clk              => s_clk,
+            reset            => s_reset,
+            sample_in        => s_mod_sample,
+            sample_in_valid  => s_mod_sample_valid,
+            sample_out       => s_lowpass_sample,
+            sample_out_valid => s_lowpass_sample_valid
+        );
+
     soft_start_stage : entity work.soft_start
         generic map (
             g_mute_samples => g_mute_samples,
@@ -345,8 +390,8 @@ begin
         port map (
             clk              => s_clk,
             reset            => s_reset,
-            sample_in        => s_mod_sample,
-            sample_in_valid  => s_mod_sample_valid,
+            sample_in        => s_eq_sample,
+            sample_in_valid  => s_eq_sample_valid,
             sample_out       => s_soft_sample,
             sample_out_valid => s_soft_sample_valid
         );
@@ -365,13 +410,13 @@ begin
         );
 
     -- Test tone: a 1 kHz sine, one sample per frame.
-    tone_stage : entity work.tone_gen
+    test_tone : entity work.tone_gen
         port map (
             clk              => s_clk,
             reset            => s_reset,
             frame_start      => s_frame_start,
-            sample_out       => s_tone_sample,
-            sample_out_valid => s_tone_sample_valid
+            sample_out       => s_test_tone_sample,
+            sample_out_valid => s_test_tone_sample_valid
         );
 
     -- USB-UART: rx <- uart_txd_in (from the PC), tx -> uart_rxd_out (to the
@@ -397,9 +442,9 @@ begin
 
     -- The test-tone switch: g_test_tone picks what i2s_tx sends. It is a
     -- generic, so synthesis keeps only the chosen side.
-    s_tx_sample       <= s_tone_sample when g_test_tone else
+    s_tx_sample       <= s_test_tone_sample when g_test_tone else
                          s_gain_sample;
-    s_tx_sample_valid <= s_tone_sample_valid when g_test_tone else
+    s_tx_sample_valid <= s_test_tone_sample_valid when g_test_tone else
                          s_gain_sample_valid;
 
     -- Command decoder: decodes the PC's commands, and answers them. It
@@ -462,7 +507,7 @@ begin
 
     end process reset_sync;
 
-    -- Switch synchronisers (SW0, SW1, SW2): two flip-flops each on s_clk, as
+    -- Switch synchronisers (SW0 .. SW3): two flip-flops each on s_clk, as
     -- reset_sync. The slide switches are not on s_clk, so they can change at
     -- any moment.
     switch_sync : process (s_clk) is
@@ -477,6 +522,9 @@ begin
 
             s_tremolo_meta <= s_tremolo_raw;          -- FF1 takes the raw input
             s_tremolo      <= s_tremolo_meta;         -- FF2 (clean)
+
+            s_tone_meta <= s_tone_raw;                -- FF1 takes the raw input
+            s_tone      <= s_tone_meta;               -- FF2 (clean)
         end if;
 
     end process switch_sync;
@@ -484,6 +532,7 @@ begin
     s_distortion_raw  <= distortion_sw;
     s_soft_select_raw <= soft_clip_sw;
     s_tremolo_raw     <= tremolo_sw;
+    s_tone_raw        <= tone_sw;
     s_reset_raw       <= reset_btn or not s_locked;
     led_locked        <= s_locked;
 
@@ -511,6 +560,15 @@ begin
 
     s_mod_sample_valid <= s_fx_sample_valid when s_fx_tremolo = '0' else
                           s_tremolo_sample_valid;
+
+    -- Tone mux, from SW3 (synchronised): off -> the tremolo mux's output,
+    -- straight through; on -> the filtered one. The filter runs all the
+    -- time, so its state is always up to date and switching is instant.
+    s_eq_sample <= s_mod_sample when s_tone = '0' else -- tone filter off
+                   s_lowpass_sample;                   -- tone filter on
+
+    s_eq_sample_valid <= s_mod_sample_valid when s_tone = '0' else
+                         s_lowpass_sample_valid;
 
     -- One set of I2S clocks for both Pmod rows.
     da_mclk <= s_mclk;
