@@ -230,6 +230,63 @@ supply for development.
 - Ripple defence in depth: supply RC (−29 dB) → Vbias RC (−50 dB, the
   critical one) → op-amp PSRR (typ. 80–120 dB at 100 Hz).
 
+## Arty A7 power (and why it matters next to the preamp)
+
+From Digilent's Arty A7 reference manual, power supplies section:
+
+| Arty A7 | |
+|---|---|
+| 5 V source | USB-JTAG port J10, **or** Power Jack J13, **or** J7 pin 8 (VIN) / pin 7 (GND) |
+| J13 plug | coaxial, 2.1 mm (or 2.5 mm) inner diameter |
+| **J13 polarity** | **centre positive** |
+| **J13 voltage** | **7–15 V DC** (15 V max) |
+| J13 current | ≥ 1 A; ideally 12 V, 3 A (36 W) |
+
+- **Opposite polarity to the preamp.** Same 2.1 mm plug, but the preamp
+  (pedal standard) is **9 V centre negative** and the Arty is **centre
+  positive**. The Arty has **no reverse-polarity protection**: J13 goes
+  straight onto VU and the MP8756 buck regulator (IC12) input (power
+  diagram, manual fig. 3.1). **Never plug the pedal supply into the Arty.**
+  Keep two separate, labelled supplies. (The other way round, the preamp's
+  series SS14 blocks it: no damage, it just doesn't work.)
+- **J13 wins over USB.** With a supply on J13, IC12 makes the 5 V and
+  the USB input is switched off (NCP380 load switch IC13 + MOSFET Q8),
+  whether or not USB is plugged in. Plugging J13 in while on USB switches
+  over with no brown-out; unplugging it while on USB causes a brown-out
+  (the power-good LED LD11 flickers). USB still carries the UART and JTAG.
+- **Battery on J7** (VIN pin 8, GND pin 7): 7–15 V, and **not** at the
+  same time as a supply on J13.
+- **LD11** (power good, from the DA9062's 3.3 V) lights when the board's
+  supplies are working.
+- Rail currents (manual table 3.1): 5 V 1 A from USB (5 A via J13), 3.3 V
+  2 A (FPGA I/O, Pmods, …), 0.95 V core 2.5 A, 1.8 V 1.5 A.
+
+### Bench ground loop (measured 2026-11-20)
+
+The bench recordings (Pmod line out → USB audio adapter's **mic** input)
+carry a hiss at about −64 dBFS (treble-heavy) and a 1 kHz line (USB's
+1 ms frame rate). Measured, it is **not the FPGA**:
+
+| Test | Hiss, 2–8 kHz | 1 kHz line |
+|---|---|---|
+| cable from the Pmod line out (normal) | −24.5 dB/bin | strong |
+| digital silence (`fx.py write out_gain 0`) | −24.7 (same) | −8.9 dB/bin |
+| cable in the mic jack only, other end loose | −50.2 | −42.7 |
+| cable unplugged | −50.7 | −45.0 |
+| both devices on a powered USB hub | −23.6 (no better) | −4.1 |
+
+The Arty and the adapter are both grounded through the PC's USB, so the
+audio cable closes a **ground loop**: USB noise flows along the cable's
+ground into the very sensitive mic input. The tone filter doesn't touch the
+hiss (it is added after the DAC). A powered hub doesn't help (it joins the
+grounds too), and powering the Arty from J13 doesn't either while the USB
+lead stays in for the UART.
+
+Fix for bench recordings: a **3.5 mm ground loop isolator** (inline audio
+transformer) between the Pmod line out and the adapter, or a USB isolator
+(e.g. ADuM4160, full speed) on the adapter's USB lead. Not a problem for
+the pedal itself: an amp input has no USB ground.
+
 ## Mains hum (50 Hz UK)
 
 No analog 50/60 Hz filter in the preamp:
