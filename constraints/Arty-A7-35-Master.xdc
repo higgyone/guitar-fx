@@ -11,7 +11,7 @@ set_property -dict { PACKAGE_PIN E3    IOSTANDARD LVCMOS33 } [get_ports { clk100
 set_property -dict { PACKAGE_PIN A8    IOSTANDARD LVCMOS33 } [get_ports { distortion_sw }]; #IO_L12N_T1_MRCC_16 Sch=sw[0]
 set_property -dict { PACKAGE_PIN C11   IOSTANDARD LVCMOS33 } [get_ports { soft_clip_sw }]; #IO_L13P_T2_MRCC_16 Sch=sw[1]
 set_property -dict { PACKAGE_PIN C10   IOSTANDARD LVCMOS33 } [get_ports { tremolo_sw }]; #IO_L13N_T2_MRCC_16 Sch=sw[2]
-# set_property -dict { PACKAGE_PIN A10   IOSTANDARD LVCMOS33 } [get_ports { sw[3] }]; #IO_L14P_T2_SRCC_16 Sch=sw[3]
+set_property -dict { PACKAGE_PIN A10   IOSTANDARD LVCMOS33 } [get_ports { tone_sw }]; #IO_L14P_T2_SRCC_16 Sch=sw[3]
 
 ## RGB LEDs
 # set_property -dict { PACKAGE_PIN E1    IOSTANDARD LVCMOS33 } [get_ports { led0_b }]; #IO_L18N_T2_35 Sch=led0_b
@@ -205,7 +205,7 @@ set_property -dict { PACKAGE_PIN A9    IOSTANDARD LVCMOS33 } [get_ports { uart_t
 #set_property -dict { PACKAGE_PIN L14   IOSTANDARD LVCMOS33 } [get_ports { qspi_dq[2] }]; #IO_L2P_T0_D02_14 Sch=qspi_dq[2]
 #set_property -dict { PACKAGE_PIN M14   IOSTANDARD LVCMOS33 } [get_ports { qspi_dq[3] }]; #IO_L2N_T0_D03_14 Sch=qspi_dq[3]
 
-## Power Measurements 
+## Power Measurements
 #set_property -dict { PACKAGE_PIN B17   IOSTANDARD LVCMOS33     } [get_ports { vsnsvu_n }]; #IO_L7N_T1_AD2N_15 Sch=ad_n[2]
 #set_property -dict { PACKAGE_PIN B16   IOSTANDARD LVCMOS33     } [get_ports { vsnsvu_p }]; #IO_L7P_T1_AD2P_15 Sch=ad_p[2]
 #set_property -dict { PACKAGE_PIN B12   IOSTANDARD LVCMOS33     } [get_ports { vsns5v0_n }]; #IO_L3N_T0_DQS_AD1N_15 Sch=ad_n[1]

@@ -137,12 +137,58 @@ every session (either PC); update it at the end.**
     Close the sim before changing `g_mode` and clear the generic after.
     The `.venv` is per PC (gitignored): create it from
     model/requirements.txt on each machine.
-  - **Next on the laptop (options, 2026-11-18):** (1) effect #4 tone
-    filter: biquad theory refresher, Python model with a frequency
-    response plot (user-written), then VHDL with coefficient
-    quantisation — recommended; (2) UART stage 2: tremolo rate/depth
-    as ports + two registers; ~~(3) soft-clip timing margin~~ done
-    2026-11-19, see the soft clip section.
+  - **Next on the laptop (options, 2026-11-18):** ~~(1) tone filter~~
+    done 2026-11-20, see Effect #5; (2) UART stage 2: tremolo rate/depth
+    (and the tone filter's on/off bit) as ports + registers; ~~(3)
+    soft-clip timing margin~~ done 2026-11-19, see the soft clip section.
+
+## Effect #5: tone filter — on the board (2026-11-20, branch `effect-tone`)
+
+(Spec section 6 calls it #4.) A biquad low-pass on SW3 (A10), after the
+tremolo mux, before soft_start: tames the distortion's fizz.
+
+- Theory, one question at a time: averaging = FIR low-pass; feedback =
+  IIR (an impulse never quite dies); feedback > 1 = unstable; the biquad
+  (2 past inputs, 2 past outputs: 12 dB/octave, Q); coefficients from the
+  Audio EQ Cookbook; Q2.16 because a1 approaches -2.
+- `model/biquad_model.py` (user-written, skeleton and main checks by
+  Claude): `lowpass_coeffs`, `quantise` (Q2.16, range check after
+  rounding), `plot_response` (exact vs Q2.16: identical at 3 kHz, +0.09 dB
+  DC error at 300 Hz, so lower cutoffs or the 50 Hz hum notch need more
+  fraction bits), and the bit-exact Direct Form I `biquad_q` (sum Q6.39 =
+  45 bits, + 2**15, >> 16, clip). A step settles 1 LSB off: deadband from
+  rounding in the loop, the hardware does the same.
+- `rtl/tone_stage.vhd` (user-written, skeleton / header by Claude):
+  generics `g_cutoff_hz`, `g_q`, `g_sample_rate`; coefficients worked out
+  with math_real at build time (1963, 3926, 1963, -95302, 37618 at 3 kHz,
+  same as Python); 5 DSPs; stage 1 products (42 bits), stage 2 sum (45
+  bits, `resize` the first term), stage 3 round + saturate; the y state
+  moves the clock after stage 3. Latency 3, samples >= 4 clocks apart.
+  Bugs found on the way: product width off by one (`42 downto 0`); y
+  shift nested inside stage 3's if (valid_2 and valid_3 never both '1':
+  the feedback would stay 0, a FIR); y shift outside the reset's else.
+- `sim/tone_stage_tb.vhd` (Claude): bit-exact model + Python's impulse
+  and step numbers; full-scale steps overshoot and clip both ways; reset
+  with a sample in flight; sines; 3000 random samples 4..12 clocks apart.
+  5012 outputs pass; catches the nested-y-shift bug; also passes at 1 kHz
+  Q 2.0 (+6.0 dB peak at the cutoff).
+- `top.vhd` (user-written wiring, comments by Claude): `tone_filter` after
+  the tremolo mux, `s_lowpass_sample` -> tone mux (SW3, synchronised) ->
+  `s_eq_sample` -> soft_start; generics `g_tone_cutoff_hz` / `g_tone_q`.
+  The test tone's instance and signals renamed `test_tone` /
+  `s_test_tone_sample` (it was also called "tone"). Not in ctrl_regs yet.
+- `top_tb` mode 4 (Claude): SW3 up, dry. A filter has memory, so a model
+  process watches `s_mod_sample` inside top (external names), checks
+  every filter output in place and records each frame's filtered value;
+  the DAC must play exactly that. All five modes pass in xsim with the
+  real Clocking Wizard. Vivado gotcha: tone_stage.vhd wasn't in the
+  project at first ("not compiled in library xil_defaultlib"); re-run
+  create_project.tcl after adding files.
+- Build: WNS +1.602 ns (worst path still drive gain -> hard clip).
+- **Bench** (USB adapter, stepped sweep -12 dBFS, SW3 on minus SW3 off):
+  -3 dB at **2951 Hz** (design 3000), within 0.5 dB of the model from
+  100 Hz to 9 kHz; noise floor scatter above 10 kHz.
+  ![tone filter bench](img/tone_bench.png)
 
 ## Effect #4: tremolo — on the board (2026-11-13, branch `effect-tremolo`)
 
