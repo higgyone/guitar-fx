@@ -10,6 +10,16 @@ every session (either PC); update it at the end.**
 2. Implementing the effects (spec section 6), on top of the working I2S path.
 
 **Later (not before the PCB and effects):**
+- **Variable tone cutoff (learning + implementation, decided 2026-11-23).**
+  The biquad coefficients need cos/sin(2 pi fc / fs) and a divide by a0, so
+  a run-time cutoff can't be a simple register. Options, simplest first:
+  (1) coefficient ROM built at elaboration with math_real (e.g. 64
+  cutoffs), the register picks an entry; (2) CORDIC (sin/cos, shifts and
+  adds, ~16-20 clocks) + an iterative divider (~1 clock per bit), a good
+  learning exercise; (3) a softcore (MicroBlaze V / small RISC-V) doing
+  the maths in C, overkill for this alone. The audio path stays in
+  hardware either way; only the coefficients change. Also: change
+  coefficients without a click (swap between samples, or ramp).
 - ~~**Boot from the Arty's QSPI flash.**~~ Done 2026-11-09, see below and
   [qspi_boot.md](qspi_boot.md).
 - **Control over the Arty's USB-UART.** Commands from the PC to switch
@@ -138,9 +148,40 @@ every session (either PC); update it at the end.**
     The `.venv` is per PC (gitignored): create it from
     model/requirements.txt on each machine.
   - **Next on the laptop (options, 2026-11-18):** ~~(1) tone filter~~
-    done 2026-11-20, see Effect #5; (2) UART stage 2: tremolo rate/depth
-    (and the tone filter's on/off bit) as ports + registers; ~~(3)
-    soft-clip timing margin~~ done 2026-11-19, see the soft clip section.
+    done 2026-11-20, see Effect #5; ~~(2) UART stage 2~~ in progress
+    2026-11-23, below; ~~(3) soft-clip timing margin~~ done 2026-11-19,
+    see the soft clip section.
+  - **UART stage 2** (2026-11-23, laptop, branch `uart-stage2`): tremolo
+    depth (0x04, Q1.15) and rate (0x05, phase step / 256) as registers,
+    tone filter on/off as control bit 3, live bits 3 (tone on) and 8 (SW3),
+    version 2. Design in [uart.md](uart.md) (`ctrl_regs` v2).
+    - User-written: `tremolo_stage` generics -> ports `rate_step` /
+      `depth`; `ctrl_regs` registers, muxes and outputs; `top.vhd` wiring
+      and the defaults from the real generics. Bugs found on the way:
+      `fx_tone => s_tone` (two drivers on the synchronised switch, and a
+      loop back into sw_tone); the tone mux's sample and valid on
+      different selects; depth divided by 2**15 (and integer / real
+      mixed); the rate default missing / 256 (447 392 truncated to 16 bits
+      at reset: a 155 Hz tremolo, only a GHDL warning); tremolo_step 44
+      bits, then 24 (widths aren't checked at analysis, only elaboration).
+      Lessons: shift_right is for bit vectors, a real divides (256 = 2**8,
+      8 bits not 4); unsigned before signed for a Q1.15 value.
+    - Claude: headers/comments, `tremolo_stage_tb` (settings from the
+      reals; GHDL can't override a real generic, so each depth runs from a
+      scratch copy), `ctrl_regs_tb` (0x04 / 0x05, depth 0x8000 and 0xFFFF
+      positive, rate 0xFFFF -> 0x00FFFF00, 16 switch combinations),
+      `top_tb` (reads version 2, live with SW3, depth 0x4000 and rate
+      0xCCCD from top's generics, writes depth 0; mode 3 now 150 Hz:
+      exact at depth 0 before the button, dipped after it resets the
+      default; catches a depth port tied to 0.5). All 5 modes pass in GHDL.
+    - `fx.py`: registers `tremolo_depth` / `tremolo_rate`, status shows
+      tone and SW3; fake_fpga v2. **Left for the user:** the four
+      conversions `depth_to_q1_15`, `q1_15_to_depth`, `rate_to_reg`,
+      `reg_to_rate` (stubs + self-test checks in place).
+    - **Then on the Vivado PC:** re-run create_project.tcl, `top_tb` in
+      all 5 modes with the real Clocking Wizard, build, program;
+      `fx.py write tremolo_rate 8`, `write tremolo_depth 1.0`,
+      `write control 0x88` (PC control, tone on) and listen.
 
 ## Effect #5: tone filter — on the board (2026-11-20, branch `effect-tone`)
 

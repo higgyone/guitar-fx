@@ -19,6 +19,9 @@
 --   6. d = 0: no tremolo at all, every output equals its input exactly.
 --   7. One output per input.
 --
+-- The rate and depth are ports: the testbench works out rate_step and
+-- depth (Q.15) from c_rate_hz and g_depth, as fx.py does on the PC.
+--
 -- Run for each depth (generic g_depth, default 0.5): 0.5, 1.0 and 0.0.
 --   xsim: xvhdl -2008 rtl/gain_stage.vhd rtl/tremolo_stage.vhd
 --         sim/tremolo_stage_tb.vhd
@@ -55,6 +58,10 @@ architecture sim of tremolo_stage_tb is
     signal sample_out       : signed(23 downto 0);
     signal sample_out_valid : std_logic;
 
+    -- The settings, worked out from the reals (fixed for the whole run).
+    signal rate_step : unsigned(31 downto 0) := to_unsigned(integer(round(c_rate_hz * 2.0 ** 32 / c_sample_rate)), 32);
+    signal depth     : signed(17 downto 0)   := to_signed(integer(round(g_depth * 32768.0)), 18);
+
     signal sim_done : boolean := false;
     signal n_in     : natural := 0; -- samples sent
 
@@ -63,16 +70,13 @@ begin
     clk <= not clk after clk_period / 2 when not sim_done;
 
     dut : entity work.tremolo_stage
-        generic map (
-            g_rate_hz     => c_rate_hz,
-            g_sample_rate => c_sample_rate,
-            g_depth       => g_depth
-        )
         port map (
             clk              => clk,
             reset            => reset,
             sample_in        => sample_in,
             sample_in_valid  => sample_in_valid,
+            rate_step        => rate_step,
+            depth            => depth,
             sample_out       => sample_out,
             sample_out_valid => sample_out_valid
         );

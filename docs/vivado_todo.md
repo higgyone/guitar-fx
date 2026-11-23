@@ -20,3 +20,12 @@ Tasks that need Vivado. Tick them off on the Vivado PC and push.
   `.venv\Scripts\python -m pip install -r model\requirements.txt`.)
   Don't `run all` after `launch_simulation`: the runtime is already
   `all`, and running on past top_tb's `finish` fails with an index error.
+- [ ] UART stage 2 (2026-11-23, laptop, after the user's fx.py
+  conversions): no new files, but tremolo_stage, ctrl_regs and top
+  changed. Run `top_tb` in all five modes (`g_mode` 0..4) with the real
+  Clocking Wizard (mode 3 is now 150 Hz and writes depth 0 over the
+  UART); build (check WNS), program. Then `fx.py --port COMx status`
+  (version 2, tremolo depth 0.5, rate 5.0011 Hz), SW2 up and
+  `write tremolo_rate 8`, `write tremolo_depth 1.0` (should dip to
+  silence), `write control 0x88` (PC control, tone filter on, the rest
+  off), `write control 0` to hand back to the switches.

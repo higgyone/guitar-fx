@@ -15,11 +15,14 @@
 --              2 soft clip: SW0 '1', SW1 '1', k = 3.0 (c_soft_drive).
 --                expected_out(x): the tanh table worked out here with
 --                math_real (as soft_clip_stage_tb does), not from the DUT.
---              3 tremolo: SW0 '0' (dry), SW2 '1', rate 2 kHz (24 frames
---                per LFO cycle, so it doesn't lock to the 16-frame test
---                sine), depth 0.5. The LFO phase isn't modelled, so the
---                check is the envelope: |out| between (1 - depth) x |dry|
---                and |dry|, with dipped and undipped frames both seen.
+--              3 tremolo: SW0 '0' (dry), SW2 '1', rate 150 Hz (320 frames
+--                per LFO cycle; register 0x05 tops out at 187 Hz), depth
+--                0.5. The LFO phase isn't modelled, so the check is the
+--                envelope: |out| between (1 - depth) x |dry| and |dry|.
+--                Before the button the PC has written depth 0 (check 7),
+--                so the DAC must play the dry sample exactly; the button
+--                resets ctrl_regs, depth goes back to 0.5, and the second
+--                stretch must dip.
 --              4 tone filter: SW0 '0' (dry), SW3 '1', 3 kHz, Q 0.707. A
 --                filter has memory, so expected_out(x) can't say what one
 --                sample becomes. Instead tone_model watches the filter's
@@ -55,17 +58,22 @@
 --      one are not checked.
 --   6. Coverage. Hard clip: frames checked must include clipped samples
 --      (+threshold and -threshold) and unclipped non-zero ones. Soft clip:
---      positive and negative outputs. Tone filter: outputs that differ
+--      positive and negative outputs. Tremolo: exact frames at depth 0
+--      (before the button) and dipped ones (after). Tone filter: outputs that differ
 --      from the dry sample, and every filter output checked in place. So
 --      each path is exercised through the real chain.
 --   7. UART commands (g_uart_clks_per_bit 16), through uart, cmd_decoder
---      and ctrl_regs: soon after lock the PC model sends three reads,
---      back-to-back: version (0xFF) -> ACK 0x00 0x01; live state (0x90) ->
---      ACK 0x00 + the switch bits (effects = switches, since the PC has not
---      taken control); an unknown register (0xC0) -> NAK. Reads only, so
---      the audio is untouched and checks 4..6 still hold (with no PC writes,
---      ctrl_regs passes the switches and the generic defaults through).
---      Checked before the final report.
+--      and ctrl_regs: soon after lock the PC model sends, back-to-back:
+--      read version (0xFF) -> ACK 0x00 0x02; read live state (0x90) -> ACK
+--      + SW3 in bit 8, the effects and switches in bits 0..6 (effects =
+--      switches, since the PC has not taken control); read an unknown
+--      register (0xC0) -> NAK; read tremolo depth (0x84) -> ACK 0x40 0x00
+--      (top's 0.5 x 2**15); read tremolo rate (0x85) -> ACK 0xCC 0xCD
+--      (top's 150 Hz x 2**32 / 48 kHz / 256 = 52 428.8, rounded); write
+--      tremolo depth 0 (0x04) -> ACK. The depth only matters with the
+--      tremolo on (mode 3); control is never written, so the switches
+--      still decide and checks 4..6 still hold. Checked before the final
+--      report.
 --
 -- The test pattern (test_sample) mixes a 0.9 full-scale sine with +/-
 -- full scale and three small values: 2**18 and -(2**18 + 12345) (x2 stays
@@ -103,7 +111,7 @@ architecture sim of top_tb is
     constant c_drive         : integer := 2 ** 16;                       -- drive x2.0 (Q3.15)
     constant c_threshold     : integer := 2 ** 20;                       -- clip at 0.125 (Q0.23)
     constant c_soft_drive    : real    := 3.0;                           -- soft clip k
-    constant c_trem_rate     : real    := 2000.0;                        -- tremolo LFO, Hz (24 frames per cycle)
+    constant c_trem_rate     : real    := 150.0;                         -- tremolo LFO, Hz (320 frames per cycle)
     constant c_trem_depth    : real    := 0.5;                           -- tremolo depth
     constant c_tone_cutoff   : real    := 3000.0;                        -- tone filter cutoff, Hz
     constant c_tone_q        : real    := 0.707;                         -- tone filter Q
@@ -257,19 +265,29 @@ architecture sim of top_tb is
 
     type t_uart_bytes is array (natural range <>) of std_logic_vector(7 downto 0);
 
-    constant c_uart_cmds  : t_uart_bytes(0 to 8) :=
+    constant c_uart_cmds  : t_uart_bytes(0 to 17) :=
     (
         x"FF",
         x"00",
-        x"00", -- read 0x7F version
+        x"00",                                                     -- read 0x7F version
         x"90",
         x"00",
-        x"00", -- read 0x10 live state
+        x"00",                                                     -- read 0x10 live state
         x"C0",
         x"00",
-        x"00"  -- read 0x40: unknown
+        x"00",                                                     -- read 0x40: unknown
+        x"84",
+        x"00",
+        x"00",                                                     -- read 0x04 tremolo depth
+        x"85",
+        x"00",
+        x"00",                                                     -- read 0x05 tremolo rate
+        x"04",
+        x"00",
+        x"00"                                                      -- write 0x04 tremolo depth = 0
     );
-    signal   uart_replied : boolean              := false;
+    signal   uart_replied : boolean               := false;
+    signal   depth0_frame : integer               := integer'high; -- ADC frame when the depth-0 write was ACKed
 
     type t_sent is array (0 to c_frames + 2) of integer;
 
@@ -332,7 +350,7 @@ begin
             uart_rxd_out  => uart_rxd_out
         );
 
-    -- 7. UART commands: the PC sends three read commands back-to-back on
+    -- 7. UART commands: the PC sends five reads and a write back-to-back on
     -- uart_txd_in soon after lock (well before the button at frame
     -- c_press_at); the replies on uart_rxd_out are checked in uart_pc_rx.
     uart_pc_tx : process is
@@ -366,19 +384,20 @@ begin
 
         variable b      : std_logic_vector(7 downto 0);
         variable live   : std_logic_vector(7 downto 0);
-        variable expect : t_uart_bytes(0 to 6);
+        variable expect : t_uart_bytes(0 to 13);
 
     begin
 
         wait until led_locked = '1';
 
         -- Live state with the switches in charge: effects = switches (bits
-        -- 0..2), switches again in bits 4..6, PC control (bit 7) off.
+        -- 0..3), switches again in bits 4..6 and 8, PC control (bit 7) off.
         live   :=
         (
             0 => distortion_sw,
             1 => soft_clip_sw,
             2 => tremolo_sw,
+            3 => tone_sw,
             4 => distortion_sw,
             5 => soft_clip_sw,
             6 => tremolo_sw,
@@ -388,16 +407,23 @@ begin
         (
             x"06",
             x"00",
-            x"01",                                                                       -- version: ACK, 1
+            x"02",                                                                                -- version: ACK, 2
             x"06",
-            x"00",
-            live,                                                                        -- live: ACK, value
-            x"15"
-        );                                                                               -- unknown: NAK
+            "0000000" & tone_sw,
+            live,                                                                                 -- live: ACK, value
+            x"15",                                                                                -- unknown: NAK
+            x"06",
+            x"40",
+            x"00",                                                                                -- depth: ACK, 0.5
+            x"06",
+            x"CC",
+            x"CD",                                                                                -- rate: ACK, 150 Hz
+            x"06"
+        );                                                                                        -- write depth 0: ACK
 
         for n in expect'range loop
 
-            wait until uart_rxd_out = '0';                                               -- start bit
+            wait until uart_rxd_out = '0';                                                        -- start bit
             wait for c_uart_bit / 2;
             assert uart_rxd_out = '0'
                 report "UART: bad start bit"
@@ -419,9 +445,13 @@ begin
                        & ", expected 0x" & to_hstring(expect(n))
                 severity failure;
 
+            if (n = expect'high) then
+                depth0_frame <= adc_frame;                                                        -- depth 0 from here
+            end if;
+
         end loop;
 
-        report "UART: version, live state and NAK replies all right"
+        report "UART: version, live state, NAK, tremolo depth / rate and write replies all right"
             severity note;
         uart_replied <= true;
         wait;
@@ -665,6 +695,7 @@ begin
         variable n_lin    : natural   := 0; -- distortion: unclipped non-zero frames checked
         variable n_dip    : natural   := 0; -- tremolo: frames turned down (< 0.9 x dry)
         variable n_full   : natural   := 0; -- tremolo: frames near full level (> 0.95 x dry)
+        variable n_exact  : natural   := 0; -- tremolo: frames exact at depth 0 (before the button)
         variable found    : boolean;        -- tone: the model has this frame's value
         variable n_filt   : natural   := 0; -- tone: frames where the filter changed the sample
 
@@ -751,6 +782,15 @@ begin
                     assert (got >= 0) = (exp >= 0) or got = 0
                         report "frame " & integer'image(adc_frame) & ": tremolo changed the sign"
                         severity failure;
+                    -- Depth 0 (written over the UART), from two frames after
+                    -- the ACK until the button resets it: exactly dry.
+                    if (press_at < 0 and adc_frame >= depth0_frame + 2) then
+                        assert got = exp
+                            report "frame " & integer'image(adc_frame) & ": depth 0 output "
+                                   & integer'image(got) & " /= dry " & integer'image(exp)
+                            severity failure;
+                        n_exact := n_exact + 1;
+                    end if;
                     n_pass := n_pass + 1;
                     if (abs (exp) > 2 ** 20) then
                         if (real(abs (got)) < 0.9 * real(abs (exp))) then
@@ -812,14 +852,17 @@ begin
                        & " filter outputs checked in place"
                     severity note;
             elsif (g_mode = 3) then
-                -- 6. Tremolo: the level really moves.
-                assert n_dip > 0 and n_full > 0
+                -- 6. Tremolo: exact at depth 0 (PC write), dipped after the
+                -- button put the default depth back.
+                assert n_dip > 0 and n_full > 0 and n_exact >= 5
                     report "tremolo coverage: " & integer'image(n_dip) & " dipped, "
-                           & integer'image(n_full) & " near full level"
+                           & integer'image(n_full) & " near full level, "
+                           & integer'image(n_exact) & " exact at depth 0"
                     severity failure;
                 report "TREMOLO run: " & integer'image(n_pass) & " frames in the envelope, in "
-                       & integer'image(runs) & " stretches; " & integer'image(n_dip)
-                       & " dipped, " & integer'image(n_full) & " near full level"
+                       & integer'image(runs) & " stretches; " & integer'image(n_exact)
+                       & " exact at depth 0, " & integer'image(n_dip) & " dipped, "
+                       & integer'image(n_full) & " near full level"
                     severity note;
             elsif (g_mode = 2) then
                 -- 6. Soft clip: both signs exercised.

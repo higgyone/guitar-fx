@@ -25,9 +25,9 @@ class FakeFpga:
 
     def __init__(self) -> None:
         """Start with the ctrl_regs defaults and the switches all off."""
-        self.regs = {0x00: 0, 0x01: 256, 0x02: 16384, 0x03: 8192}
-        self.version = 1
-        self.switches = 0b000  # SW2 SW1 SW0, as on the board
+        self.regs = {0x00: 0, 0x01: 256, 0x02: 16384, 0x03: 8192, 0x04: 16384, 0x05: 1748}
+        self.version = 2
+        self.switches = 0b0000  # SW3 SW2 SW1 SW0, as on the board
         self._rx: list[int] = []  # bytes of the command being received
         self._tx = bytearray()  # reply bytes waiting to be read
         self._lose_byte = False
@@ -43,14 +43,15 @@ class FakeFpga:
         self._lose_reply = True
 
     def _live(self) -> int:
-        """Register 0x10: effects actually on, switches, PC control.
+        """Register 0x10: effects on (bits 0..3), SW0..SW2 (4..6), PC control (7), SW3 (8).
 
         Returns:
             The 16-bit live-state value.
         """
         pc = (self.regs[0x00] >> 7) & 1
-        fx = self.regs[0x00] & 0b111 if pc else self.switches
-        return fx | (self.switches << 4) | (pc << 7)
+        fx = self.regs[0x00] & 0b1111 if pc else self.switches
+        sw = self.switches
+        return fx | ((sw & 0b111) << 4) | (pc << 7) | (((sw >> 3) & 1) << 8)
 
     def _reply(self, data: bytes) -> None:
         """Queue reply bytes, unless the next reply is to be lost.

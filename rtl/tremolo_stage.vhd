@@ -1,5 +1,5 @@
--- tremolo_stage: tremolo. The volume rises and falls smoothly, g_rate_hz
--- times a second, driven by a sine-wave LFO (low-frequency oscillator).
+-- tremolo_stage: tremolo. The volume rises and falls smoothly, driven by a
+-- sine-wave LFO (low-frequency oscillator).
 --
 --   gain = 1 - depth * (1 + sin) / 2       out = in * gain
 --
@@ -7,20 +7,26 @@
 -- between 1.0 (sine trough) and 1 - depth (sine peak). It never goes above
 -- 1.0, so the tremolo can't make anything clip.
 --
---   sample_in     : Q1.23
---   g_rate_hz     : real, wobble speed in Hz (a few Hz is typical)
---   g_depth       : real, 0.0 no effect .. 0.5 gentle (-6 dB dips) .. 1.0
---                   dips to silence
---   g_sample_rate : real, the real sample rate; the block counts samples, so
---                   this must match or the rate is off by the same factor
---   sample_out    : Q1.23
+--   sample_in  : Q1.23
+--   rate_step  : unsigned, phase added per sample (sets the rate, below)
+--   depth      : Q.15, 0 no effect .. 16384 (0.5) gentle (-6 dB dips) ..
+--                32768 (1.0) dips to silence. Above 1.0 the gain goes
+--                negative: the caller keeps it in range (fx.py checks).
+--   sample_out : Q1.23
 --
--- The LFO is a phase accumulator: a 32-bit counter that adds c_step every
--- sample. Its whole range is one turn of the sine, so it wraps back to the
--- start by itself (the carry out of the top bit is dropped), and any
--- remainder carries into the next turn, so the rate is exact over time:
+-- Both settings are ports (ctrl_regs, so the PC can change them) and work
+-- straight away: a new rate_step carries on from the current phase (no
+-- jump); a new depth moves the gain in one step.
 --
---   c_step = g_rate_hz * 2**32 / g_sample_rate     (5 Hz at 48 kHz: 447 392)
+-- The LFO is a phase accumulator: a 32-bit counter that adds rate_step
+-- every sample. Its whole range is one turn of the sine, so it wraps back
+-- to the start by itself (the carry out of the top bit is dropped), and
+-- any remainder carries into the next turn, so the rate is exact over time:
+--
+--   rate_step = rate_hz * 2**32 / sample rate     (5 Hz at 48 kHz: 447 392)
+--
+-- The block counts samples, so the rate is right only if rate_step was
+-- worked out for the real sample rate.
 --
 -- Its top 10 bits (31..22) pick one of 1024 entries of a sine table (one
 -- full cycle, Q2.15, filled when the design is built). The gain path is a
@@ -41,16 +47,13 @@ library ieee;
     use ieee.math_real.all;
 
 entity tremolo_stage is
-    generic (
-        g_rate_hz     : real := 5.0;     -- wobble speed, Hz
-        g_sample_rate : real := 48000.0; -- samples per second (sample_in_valid pulses)
-        g_depth       : real := 0.5      -- how far the volume dips: 0.0 none .. 1.0 to silence
-    );
     port (
         clk              : in    std_logic;
         reset            : in    std_logic;
         sample_in        : in    signed(23 downto 0);
         sample_in_valid  : in    std_logic;
+        rate_step        : in    unsigned(31 downto 0); -- phase added per sample
+        depth            : in    signed(17 downto 0);   -- depth, Q.15
         sample_out       : out   signed(23 downto 0);
         sample_out_valid : out   std_logic
     );
@@ -75,7 +78,8 @@ architecture rtl of tremolo_stage is
 
         for i in 0 to 1023 loop
 
-            table(i) := to_signed(integer(round(sin(MATH_2_PI * real(i) / 1024.0) * real(2 ** 15 - 1))), 18); -- entry i: sin(2 pi i / 1024), Q2.15
+            -- entry i: sin(2 pi i / 1024), Q2.15
+            table(i) := to_signed(integer(round(sin(MATH_2_PI * real(i) / 1024.0) * real(2 ** 15 - 1))), 18);
 
         end loop;
 
@@ -85,9 +89,7 @@ architecture rtl of tremolo_stage is
 
     -- Worked out once, when the design is built (real maths only exists
     -- there; the hardware gets the bits):
-    constant c_sin   : t_sin                 := generate_sine_values;                                                   -- the ROM
-    constant c_step  : unsigned(31 downto 0) := to_unsigned(integer(round(g_rate_hz * 2.0 ** 32 / g_sample_rate)), 32); -- phase added per sample
-    constant c_depth : signed(17 downto 0)   := to_signed(integer(round(g_depth * 32768.0)), 18);                       -- depth, Q.15
+    constant c_sin : t_sin := generate_sine_values; -- the ROM
 
     signal s_phase       : unsigned(31 downto 0) := (others => '0'); -- LFO position, one turn = 2**32
     signal s_address     : unsigned(9 downto 0);                     -- table entry, phase bits 31..22
@@ -119,16 +121,16 @@ begin
     begin
 
         if rising_edge(clk) then
-            s_sine        <= c_sin(to_integer(s_address));      -- registered read: block RAM
-            s_u           <= shift_right(s_sine + 32768, 1);    -- (1 + sin) / 2: + 1.0, then / 2 as a shift
-            s_dip_product <= s_u * c_depth;                     -- Q.15 x Q.15 = Q.30 (DSP)
-            s_dip         <= s_dip_product(32 downto 15);       -- / 2**15: back to Q.15 (bits 35..31 always 0)
-            s_gain        <= (to_signed(32768, 18) - s_dip);    -- 1.0 - dip
+            s_sine        <= c_sin(to_integer(s_address));         -- registered read: block RAM
+            s_u           <= shift_right(s_sine + 32768, 1);       -- (1 + sin) / 2: + 1.0, then / 2 as a shift
+            s_dip_product <= s_u * depth;                          -- Q.15 x Q.15 = Q.30 (DSP)
+            s_dip         <= s_dip_product(32 downto 15);          -- / 2**15: back to Q.15 (bits 35..31 always 0)
+            s_gain        <= (to_signed(32768, 18) - s_dip);       -- 1.0 - dip
 
             if (reset = '1') then
-                s_phase <= (others => '0');                     -- restart the LFO at phase 0
+                s_phase <= (others => '0');                        -- restart the LFO at phase 0
             elsif (sample_in_valid = '1') then
-                s_phase <= s_phase + c_step;                    -- wraps at 2**32: one full turn
+                s_phase <= s_phase + rate_step;                    -- wraps at 2**32: one full turn
             end if;
         end if;
 

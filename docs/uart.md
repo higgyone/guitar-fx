@@ -312,6 +312,42 @@ Register number = **reg_addr(6 downto 0)** (bit 7 is the read flag), as an
 integer s_addr for a `case`. E.g. read output gain: PC sends 0x81 0x00 0x00,
 FPGA replies 0x06 0x01 0x00 (0x0100 = 256 = 1/32 in Q3.13).
 
+### `ctrl_regs` v2: stage 2 (2026-11-23)
+
+The tremolo's rate and depth become registers, and the PC can switch the
+tone filter. `tremolo_stage` loses its generics (real maths only exists at
+build time) and gets two ports, `rate_step` (unsigned 32) and `depth`
+(signed 18, Q.15); top works the power-up defaults out from its real
+generics. `g_version` = 2.
+
+**Register map v2** (v1 plus):
+
+| Reg | Access | Setting | PC sends | FPGA | Default |
+|-----|--------|---------|----------|------|---------|
+| 0x00 | R/W | control | + bit 3 tone filter on | bits | bit 7 = 0 |
+| 0x04 | R/W | tremolo depth | Q1.15 unsigned, 0 .. 1.0 (0x8000) | `"00" &` → Q.15 (18 bits) | 16 384 (0.5) |
+| 0x05 | R/W | tremolo rate | phase step / 256 | `x"00" & v & x"00"` → 32-bit step | 1 748 (5.0011 Hz) |
+| 0x10 | R | live state | — | + bit 3 tone on, bit 8 SW3 | — |
+
+- **Depth, Q1.15:** 1.0 must fit exactly (dip to silence), so one integer
+  bit. Convert as unsigned first: `signed("00" & v)`. `resize(signed(v), 18)`
+  would read 0x8000 as −1.0 and sign-extend it (the tremolo would boost).
+  Above 1.0 the gain goes negative: fx.py range-checks.
+- **Rate:** step = Hz × 2^32 / 48 000 (5 Hz = 447 392, 19 bits). The
+  register holds step / 256 (8 zeros at the bottom, 8 on top): step 0.00286
+  Hz, max 187.5 Hz (a tremolo needs ~1..15). As a fraction of a turn per
+  sample: register Q0.24, step Q0.32. A new step carries on from the
+  current phase (no jump); a new depth moves the gain in one step.
+- **Live state:** bits 0..3 effects on, 4..6 SW0..SW2, 7 PC control, 8 SW3
+  (bit 7 was taken, so SW3 sits apart from the other switches).
+- **Defaults in top:** `integer(round(g_tremolo_depth * 32768.0))` and
+  `integer(round(g_tremolo_rate_hz * 2.0 ** 32 / 48000.0 / 256.0))`. A
+  value over 16 bits is not caught at analysis: GHDL warns
+  `TO_UNSIGNED: vector truncated` at reset and keeps the bottom 16 bits
+  (447 392 → 54 176 = a 155 Hz tremolo).
+- **Later:** the tone cutoff, which needs run-time coefficient maths
+  (progress.md, Later).
+
 Structure (walked through 2026-11-17): stored registers s_reg_* (16 bits,
 start at the defaults); clocked write process (reset loads defaults,
 reg_write stores into case s_addr, `when others => null`); combinational
