@@ -261,11 +261,12 @@ From Digilent's Arty A7 reference manual, power supplies section:
 - Rail currents (manual table 3.1): 5 V 1 A from USB (5 A via J13), 3.3 V
   2 A (FPGA I/O, Pmods, …), 0.95 V core 2.5 A, 1.8 V 1.5 A.
 
-### Bench ground loop (measured 2026-11-20)
+### Bench hiss and the 1 kHz line (measured 2026-11-20 and 2026-11-24)
 
 The bench recordings (Pmod line out → USB audio adapter's **mic** input)
-carry a hiss at about −64 dBFS (treble-heavy) and a 1 kHz line (USB's
-1 ms frame rate). Measured, it is **not the FPGA**:
+carry a hiss at about −60 to −64 dBFS (treble-heavy) and a 1 kHz line
+(USB's 1 ms frame rate). Neither comes from the FPGA. They have **two
+different causes**:
 
 | Test | Hiss, 2–8 kHz | 1 kHz line |
 |---|---|---|
@@ -274,18 +275,43 @@ carry a hiss at about −64 dBFS (treble-heavy) and a 1 kHz line (USB's
 | cable in the mic jack only, other end loose | −50.2 | −42.7 |
 | cable unplugged | −50.7 | −45.0 |
 | both devices on a powered USB hub | −23.6 (no better) | −4.1 |
+| 3.5 mm ground loop isolator in the cable | −21.3 (no better) | −15.4 (better) |
 
-The Arty and the adapter are both grounded through the PC's USB, so the
-audio cable closes a **ground loop**: USB noise flows along the cable's
-ground into the very sensitive mic input. The tone filter doesn't touch the
-hiss (it is added after the DAC). A powered hub doesn't help (it joins the
-grounds too), and powering the Arty from J13 doesn't either while the USB
-lead stays in for the UART.
+- **The hiss is the DAC's own analogue noise floor**, made audible by the
+  adapter's very sensitive mic input (built for millivolts; even a good
+  DAC's noise, ~90–100 dB below its full scale, lands near −60 dBFS
+  there). It stays with digital silence, goes when the cable is
+  disconnected, and **breaking the ground (isolator) doesn't remove it**.
+  The tone filter doesn't touch it (it is added after the DAC).
+- **The 1 kHz line is a ground loop**: the Arty and the adapter are both
+  grounded through the PC's USB, and the audio cable closes the loop. The
+  isolator cuts it by 6–11 dB; a powered hub doesn't help (it joins the
+  grounds too), nor does powering the Arty from J13 while the USB lead
+  stays in for the UART.
 
-Fix for bench recordings: a **3.5 mm ground loop isolator** (inline audio
-transformer) between the Pmod line out and the adapter, or a USB isolator
-(e.g. ADuM4160, full speed) on the adapter's USB lead. Not a problem for
-the pedal itself: an amp input has no USB ground.
+(First written up, wrongly, as all ground loop; the isolator test on
+2026-11-24 separated the two.)
+
+**Fix for bench recordings: more signal, not less noise.** The default
+output gain (1/32, −30 dB) throws away signal before the DAC while its
+noise stays put. With `fx.py write out_gain 0.25` (+18 dB), measured
+2026-11-24, same −12 dBFS sweep:
+
+| | sweep (200 Hz–2 kHz) | hiss | signal-to-hiss | peak |
+|---|---|---|---|---|
+| out_gain 1/32 | −46.3 dBFS rms | −63.8 | 17.5 dB | |
+| **out_gain 0.25** | −29.2 dBFS rms | −61.5 | **32.3 dB** | −22 dBFS (no clipping) |
+
+The whole band rose by 16–20 dB. Use out_gain 0.25 for bench recordings
+(BTN0 or reprogramming puts back 1/32).
+
+**Don't use the ground loop isolator on the mic input.** Mic inputs feed a
+DC bias (plug-in power) for electret mics; through the transformer's
+winding it saturates the core: with it in, the sweep lost 5–10 dB below
+1 kHz and was uneven above (±5 dB), instead of the expected flat +18 dB.
+Keep it for line-to-line connections (e.g. pedal → amp if hum appears
+there). Not a problem for the pedal itself: an amp input has neither the
+mic's sensitivity nor the USB ground.
 
 ## Mains hum (50 Hz UK)
 
@@ -492,3 +518,56 @@ Notes, no change made:
 - J2's front face sits 3.65 mm inside the board edge.
 - The 0402 / 0603 lands are KiCad's standard hand-solder pads, not checked
   against the Murata / Yageo drawings.
+
+## Bench test (board rev 1, 2026-11-24)
+
+Board assembled (JLCPCB assembly; C5, C6, J2 hand-soldered), 9 V pedal
+supply (centre negative). Source: the USB audio adapter's headphone out
+(left channel) into J2 through a 3.5 mm → 1/4" lead. PicoScope 2207A, 10×
+probes, AC coupled: A on J3's tip (output), B on J2's tip (input). Unloaded
+output (no Pmod).
+
+**DC (no signal):**
+
+| Point | Measured | Expected |
+|---|---|---|
+| U1 pin 8 (VCC) | 8.503 V | ≈ 8.4 V |
+| Vbias (calc. 8.503 × 100 / 320) | 2.657 V | |
+| U1 pin 3 | 2.204 V | 2.18 V *with the probe on it* (see below) |
+| U1 pin 1 (output DC) | 2.677 V | ≈ Vbias |
+
+U1 pin 3 is fed through R5 2.2 MΩ, so a 10 MΩ probe or meter pulls it down
+to 2.657 × 10 / 12.2 = 2.18 V. Unprobed it sits at Vbias, as the output's
+DC (gain 1 at DC through C_g) shows. Measure Vbias at U1 pin 7 (the U1B
+follower) instead.
+
+**AC:**
+
+| | Measured | Design |
+|---|---|---|
+| Gain at 1 kHz | **×3.29 (+10.3 dB)** | ×3.0 (RV1 20 kΩ): RV1 is at ≈ 22.9 kΩ |
+| Phase at 1 kHz | +0.2° | 0° (non-inverting) |
+| Flatness | within 0.2 dB, 100 Hz – 20 kHz | flat |
+| Low end | −0.4 dB at 30 Hz (+22° lead) | C_in / C_g corners ≈ 5–7 Hz |
+| Top end | −11° at 20 kHz | C7 corner ≈ 70 kHz |
+| Linearity | gain 3.27–3.30 from 15 mV to 457 mV in | constant |
+| Largest output tested | 1.49 V peak, THD 0.24 % (no clipping) | swing ≈ 2.3 V below Vbias |
+
+- The THD figures at low levels (2 % at −30 dBFS) are the 8-bit scope's
+  steps, not the board (the input channel reads worse); at normal levels
+  0.1–0.25 %, the limit of the adapter and scope.
+- The adapter's own output drops above 10 kHz (input 47 → 32 mV at
+  20 kHz); the preamp's gain stays flat.
+- First run, misread: with probe A on the output and B unconnected, the
+  output looked missing. Check which channel is on which point.
+- G = 3.29 meant the ADC would clip at 1.875 / 3.29 = 0.57 V at the jack
+  (vs 0.625 V at G = 3). **Trimmed (2026-11-24): RV1 turned down with
+  `model/preamp_bench.py trim --target 3.0` (live gain readout); now
+  G = 2.983 (+9.49 dB) at 1 kHz**, in phase. ADC clip point 0.63 V at the
+  jack, 3× the guitar's measured 205 mV peak.
+- Re-test any time: `.venv\Scripts\python model\preamp_bench.py test
+  --png docs\img\preamp_bench.png` (full), `quick` (one reading).
+
+![preamp bench test](img/preamp_bench.png)
+
+Next: the whole chain, guitar → preamp → Pmod line in → FPGA.
