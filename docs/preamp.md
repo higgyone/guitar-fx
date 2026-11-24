@@ -261,11 +261,12 @@ From Digilent's Arty A7 reference manual, power supplies section:
 - Rail currents (manual table 3.1): 5 V 1 A from USB (5 A via J13), 3.3 V
   2 A (FPGA I/O, Pmods, …), 0.95 V core 2.5 A, 1.8 V 1.5 A.
 
-### Bench ground loop (measured 2026-11-20)
+### Bench hiss and the 1 kHz line (measured 2026-11-20 and 2026-11-24)
 
 The bench recordings (Pmod line out → USB audio adapter's **mic** input)
-carry a hiss at about −64 dBFS (treble-heavy) and a 1 kHz line (USB's
-1 ms frame rate). Measured, it is **not the FPGA**:
+carry a hiss at about −60 to −64 dBFS (treble-heavy) and a 1 kHz line
+(USB's 1 ms frame rate). Neither comes from the FPGA. They have **two
+different causes**:
 
 | Test | Hiss, 2–8 kHz | 1 kHz line |
 |---|---|---|
@@ -274,18 +275,43 @@ carry a hiss at about −64 dBFS (treble-heavy) and a 1 kHz line (USB's
 | cable in the mic jack only, other end loose | −50.2 | −42.7 |
 | cable unplugged | −50.7 | −45.0 |
 | both devices on a powered USB hub | −23.6 (no better) | −4.1 |
+| 3.5 mm ground loop isolator in the cable | −21.3 (no better) | −15.4 (better) |
 
-The Arty and the adapter are both grounded through the PC's USB, so the
-audio cable closes a **ground loop**: USB noise flows along the cable's
-ground into the very sensitive mic input. The tone filter doesn't touch the
-hiss (it is added after the DAC). A powered hub doesn't help (it joins the
-grounds too), and powering the Arty from J13 doesn't either while the USB
-lead stays in for the UART.
+- **The hiss is the DAC's own analogue noise floor**, made audible by the
+  adapter's very sensitive mic input (built for millivolts; even a good
+  DAC's noise, ~90–100 dB below its full scale, lands near −60 dBFS
+  there). It stays with digital silence, goes when the cable is
+  disconnected, and **breaking the ground (isolator) doesn't remove it**.
+  The tone filter doesn't touch it (it is added after the DAC).
+- **The 1 kHz line is a ground loop**: the Arty and the adapter are both
+  grounded through the PC's USB, and the audio cable closes the loop. The
+  isolator cuts it by 6–11 dB; a powered hub doesn't help (it joins the
+  grounds too), nor does powering the Arty from J13 while the USB lead
+  stays in for the UART.
 
-Fix for bench recordings: a **3.5 mm ground loop isolator** (inline audio
-transformer) between the Pmod line out and the adapter, or a USB isolator
-(e.g. ADuM4160, full speed) on the adapter's USB lead. Not a problem for
-the pedal itself: an amp input has no USB ground.
+(First written up, wrongly, as all ground loop; the isolator test on
+2026-11-24 separated the two.)
+
+**Fix for bench recordings: more signal, not less noise.** The default
+output gain (1/32, −30 dB) throws away signal before the DAC while its
+noise stays put. With `fx.py write out_gain 0.25` (+18 dB), measured
+2026-11-24, same −12 dBFS sweep:
+
+| | sweep (200 Hz–2 kHz) | hiss | signal-to-hiss | peak |
+|---|---|---|---|---|
+| out_gain 1/32 | −46.3 dBFS rms | −63.8 | 17.5 dB | |
+| **out_gain 0.25** | −29.2 dBFS rms | −61.5 | **32.3 dB** | −22 dBFS (no clipping) |
+
+The whole band rose by 16–20 dB. Use out_gain 0.25 for bench recordings
+(BTN0 or reprogramming puts back 1/32).
+
+**Don't use the ground loop isolator on the mic input.** Mic inputs feed a
+DC bias (plug-in power) for electret mics; through the transformer's
+winding it saturates the core: with it in, the sweep lost 5–10 dB below
+1 kHz and was uneven above (±5 dB), instead of the expected flat +18 dB.
+Keep it for line-to-line connections (e.g. pedal → amp if hum appears
+there). Not a problem for the pedal itself: an amp input has neither the
+mic's sensitivity nor the USB ground.
 
 ## Mains hum (50 Hz UK)
 
