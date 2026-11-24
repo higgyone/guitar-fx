@@ -27,6 +27,21 @@ about 25 ms, with no PC or Vivado needed. Done and tested 2026-11-09.
 
 ## Updating the flash after a change
 
+**Quick way (2026-11-24): `scripts/program_flash.tcl`**, after Generate
+Bitstream. From the Vivado Tcl console (GUI open or not):
+
+    cd D:/Repos/guitar-fx
+    source scripts/program_flash.tcl
+
+It takes `impl_1/top.bin` from the repo path (prints its build date),
+connects, adds the flash part if Vivado has forgotten it, erases, programs
+and verifies (stops with an error if any step fails), then reboots the FPGA
+from the flash. About 15 s of flash work. Or from a terminal, without the
+GUI: `vivado -mode batch -nojournal -nolog -source scripts/program_flash.tcl`.
+Then check with `fx.py --port COMx read version`.
+
+The same by hand, in the GUI:
+
 1. **Generate Bitstream.** `build/vivado/guitar-fx.runs/impl_1/` gets
    `top.bit` and `top.bin`.
 2. **Hardware Manager → Open Target → Auto Connect.**
@@ -43,6 +58,28 @@ about 25 ms, with no PC or Vivado needed. Done and tested 2026-11-09.
 For a quick test without touching the flash, program `top.bit` over JTAG
 as before: it runs until the next power-off, then the flash design comes
 back.
+
+### Checks (learned 2026-11-24)
+
+A power cycle once brought back an old flash image without the UART (`fx.py`
+got "no reply" although the build was right). What to check:
+
+- **The flash device can vanish** from Hardware Manager after
+  `scripts/create_project.tcl` rebuilds the project: add it again (step 3).
+- **The file:** check the full path and date in the Configuration file box:
+  `build/vivado/guitar-fx.runs/impl_1/top.bin`, from the build you mean.
+  The dialog can remember an older path.
+- **The result:** Vivado must report that flash programming completed
+  successfully (with Verify ticked). Anything else: it isn't in the flash.
+- **Boot test:** unplug and replug the USB (a real power cycle), then
+  `.venv\Scripts\python model\fx.py --port COMx read version`. It must
+  answer (2 for `ctrl_regs` v2), and `read out_gain` gives the power-up
+  default 0.03125: proof it booted from flash, not a design still loaded
+  over JTAG.
+- **"no reply" from fx.py on every register** = no UART in the running
+  design (the old image), not a wrong register: re-flash. The Arty shows
+  one COM port (VID:PID 0403:6010); the other half of its FTDI chip is the
+  JTAG.
 
 ## On the board
 
