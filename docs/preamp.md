@@ -518,3 +518,56 @@ Notes, no change made:
 - J2's front face sits 3.65 mm inside the board edge.
 - The 0402 / 0603 lands are KiCad's standard hand-solder pads, not checked
   against the Murata / Yageo drawings.
+
+## Bench test (board rev 1, 2026-11-24)
+
+Board assembled (JLCPCB assembly; C5, C6, J2 hand-soldered), 9 V pedal
+supply (centre negative). Source: the USB audio adapter's headphone out
+(left channel) into J2 through a 3.5 mm → 1/4" lead. PicoScope 2207A, 10×
+probes, AC coupled: A on J3's tip (output), B on J2's tip (input). Unloaded
+output (no Pmod).
+
+**DC (no signal):**
+
+| Point | Measured | Expected |
+|---|---|---|
+| U1 pin 8 (VCC) | 8.503 V | ≈ 8.4 V |
+| Vbias (calc. 8.503 × 100 / 320) | 2.657 V | |
+| U1 pin 3 | 2.204 V | 2.18 V *with the probe on it* (see below) |
+| U1 pin 1 (output DC) | 2.677 V | ≈ Vbias |
+
+U1 pin 3 is fed through R5 2.2 MΩ, so a 10 MΩ probe or meter pulls it down
+to 2.657 × 10 / 12.2 = 2.18 V. Unprobed it sits at Vbias, as the output's
+DC (gain 1 at DC through C_g) shows. Measure Vbias at U1 pin 7 (the U1B
+follower) instead.
+
+**AC:**
+
+| | Measured | Design |
+|---|---|---|
+| Gain at 1 kHz | **×3.29 (+10.3 dB)** | ×3.0 (RV1 20 kΩ): RV1 is at ≈ 22.9 kΩ |
+| Phase at 1 kHz | +0.2° | 0° (non-inverting) |
+| Flatness | within 0.2 dB, 100 Hz – 20 kHz | flat |
+| Low end | −0.4 dB at 30 Hz (+22° lead) | C_in / C_g corners ≈ 5–7 Hz |
+| Top end | −11° at 20 kHz | C7 corner ≈ 70 kHz |
+| Linearity | gain 3.27–3.30 from 15 mV to 457 mV in | constant |
+| Largest output tested | 1.49 V peak, THD 0.24 % (no clipping) | swing ≈ 2.3 V below Vbias |
+
+- The THD figures at low levels (2 % at −30 dBFS) are the 8-bit scope's
+  steps, not the board (the input channel reads worse); at normal levels
+  0.1–0.25 %, the limit of the adapter and scope.
+- The adapter's own output drops above 10 kHz (input 47 → 32 mV at
+  20 kHz); the preamp's gain stays flat.
+- First run, misread: with probe A on the output and B unconnected, the
+  output looked missing. Check which channel is on which point.
+- G = 3.29 meant the ADC would clip at 1.875 / 3.29 = 0.57 V at the jack
+  (vs 0.625 V at G = 3). **Trimmed (2026-11-24): RV1 turned down with
+  `model/preamp_bench.py trim --target 3.0` (live gain readout); now
+  G = 2.983 (+9.49 dB) at 1 kHz**, in phase. ADC clip point 0.63 V at the
+  jack, 3× the guitar's measured 205 mV peak.
+- Re-test any time: `.venv\Scripts\python model\preamp_bench.py test
+  --png docs\img\preamp_bench.png` (full), `quick` (one reading).
+
+![preamp bench test](img/preamp_bench.png)
+
+Next: the whole chain, guitar → preamp → Pmod line in → FPGA.

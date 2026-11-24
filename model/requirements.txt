@@ -8,3 +8,4 @@ scipy
 matplotlib
 ruff
 pyserial
+sounddevice  # preamp_bench.py: test tones on the USB audio adapter
