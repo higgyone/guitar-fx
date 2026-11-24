@@ -6,7 +6,8 @@ every session (either PC); update it at the end.**
 ## Priorities (set 2026-11-07)
 
 **Now:**
-1. The preamp PCB (PR #6): route the board, order the mounting hardware.
+1. ~~The preamp PCB (PR #6)~~ built, bench-tested and played with the
+   guitar 2026-11-24, see "Preamp board built + first guitar test".
 2. Implementing the effects (spec section 6), on top of the working I2S path.
 
 **Later (not before the PCB and effects):**
@@ -189,6 +190,38 @@ tremolo mux, before soft_start: tames the distortion's fizz.
   -3 dB at **2951 Hz** (design 3000), within 0.5 dB of the model from
   100 Hz to 9 kHz; noise floor scatter above 10 kHz.
   ![tone filter bench](img/tone_bench.png)
+
+## Preamp board built + first guitar test (2026-11-24, Vivado PC)
+
+The whole chain works with the real guitar for the first time:
+guitar → preamp J2 → J3 → Pmod LINE IN (blue) → FPGA → Pmod LINE OUT
+(green) → amp. Preamp on its 9 V pedal supply, Arty on USB (UART kept).
+
+- **Preamp board (rev 1)** bench-tested first, details in
+  [preamp.md](preamp.md) "Bench test": VCC 8.50 V, output DC at Vbias,
+  flat within 0.2 dB 100 Hz – 20 kHz, clean to 1.49 V peak. RV1 trimmed
+  from ×3.29 to **×2.983** with `model/preamp_bench.py trim` (PR #45).
+- **Guitar strum on the scope** (B on J2's tip, A on J3's tip, triggered
+  on the input, scratch `strum2.py`): input **189 mV** peak (the 205 mV
+  measured at design time), output **551 mV** (×2.92), strongest lines
+  82 Hz (low E) and 164 Hz; 50 Hz hum at J3 4.5 mV, under 1 % of the
+  strum. ADC clips at 0.63 V at the jack, 3× the strum.
+- **Output level:** `fx.py write out_gain 0.5` for the amp (the 1/32
+  default is set for the USB mic input; BTN0 / power-up resets it).
+- **Debugging "only hum, no guitar"**, in this order (worth reusing):
+  `fx.py write out_gain 0` (digital silence): hum gone → it comes *through*
+  the FPGA, i.e. the input side, not a ground loop after the DAC (then the
+  isolator between line out and amp would be the fix). Then the scope on
+  J2 / J3 while strumming: guitar on both → the preamp is fine, the break
+  is after J3. Cause: **the 3.5 mm plug wasn't pushed fully into the
+  Pmod's line-in jack** (only the ground connected, so the open input
+  picked up hum). The Pmod jacks are stiff: push until it clicks.
+- Flash now updated with `scripts/program_flash.tcl` (PR #46); the board
+  boots the `uart-stage2` build (ctrl_regs v2) from flash.
+- **Next:** play through the effects with the guitar (distortion soft /
+  hard, tone filter on the distortion, tremolo) and note what needs
+  changing (drive, threshold, cutoff, levels); finish `uart-stage2` (the
+  four `fx.py` conversions, board test, PR).
 
 ## Effect #4: tremolo — on the board (2026-11-13, branch `effect-tremolo`)
 
