@@ -4,19 +4,24 @@
 -- switches directly, and checks every output.
 --
 -- Checks:
---   1. After reset: the defaults read back (0x00..0x03), and the outputs
+--   1. After reset: the defaults read back (0x00..0x05), and the outputs
 --      are the defaults converted: out_gain 256 & "00" = 1024 (1/32 in
 --      Q3.15), drive 16384 & "00" = 65536 (x2.0), threshold 8192 & 7 zeros
---      = 2**20 (0.125 in Q0.23). PC control off: fx_* follow the switches.
---   2. Address decode: 0x00..0x03 valid + writable; 0x10 and 0x7F valid,
---      read only; 0x04, 0x0F, 0x11, 0x7E not valid. The read flag (bit 7)
---      is ignored: 0x81 answers like 0x01.
+--      = 2**20 (0.125 in Q0.23), tremolo depth 16384 (0.5 in Q.15), tremolo
+--      step 1748 * 256 = 447 488 (5 Hz). PC control off: fx_* follow the
+--      switches.
+--   2. Address decode: 0x00..0x05 valid + writable; 0x10 and 0x7F valid,
+--      read only; every other number not valid. The read flag (bit 7) is
+--      ignored: 0x81 answers like 0x01.
 --   3. Writes: each register stores reg_data, reads it back, and its output
---      changes to the converted value.
+--      changes to the converted value. Depth 0x8000 (1.0) and 0xFFFF must
+--      come out positive (read as signed first, 0x8000 would be -1.0);
+--      rate 0xFFFF gives step 0x00FFFF00 (8 zeros on top, 8 at the bottom).
 --   4. A write pulse to a read-only or unknown address changes nothing.
---   5. Switches vs PC: control bit 7 = 0 -> fx_* = switches (all 8
---      combinations); bit 7 = 1 -> fx_* = control bits 0..2, whatever the
---      switches do. The live-state register 0x10 matches every time.
+--   5. Switches vs PC: control bit 7 = 0 -> fx_* = switches (all 16
+--      combinations); bit 7 = 1 -> fx_* = control bits 0..3, whatever the
+--      switches do. The live-state register 0x10 matches every time
+--      (bits 0..3 fx_*, 4..6 SW0..SW2, 7 PC control, 8 SW3).
 --   6. Version at 0x7F = g_version (set to 3 here).
 --   7. Reset after writes brings the defaults back.
 --
@@ -43,15 +48,19 @@ architecture sim of ctrl_regs_tb is
     signal sw_distortion     : std_logic                     := '0';
     signal sw_soft           : std_logic                     := '0';
     signal sw_tremolo        : std_logic                     := '0';
+    signal sw_tone           : std_logic                     := '0';
     signal reg_addr_valid    : std_logic;
     signal reg_addr_writable : std_logic;
     signal reg_rdata         : std_logic_vector(15 downto 0);
     signal fx_distortion     : std_logic;
     signal fx_soft           : std_logic;
     signal fx_tremolo        : std_logic;
+    signal fx_tone           : std_logic;
     signal out_gain          : signed(17 downto 0);
     signal drive_gain        : signed(17 downto 0);
     signal threshold         : unsigned(22 downto 0);
+    signal tremolo_depth     : signed(17 downto 0);
+    signal tremolo_step      : unsigned(31 downto 0);
 
 begin
 
@@ -70,15 +79,19 @@ begin
             sw_distortion     => sw_distortion,
             sw_soft           => sw_soft,
             sw_tremolo        => sw_tremolo,
+            sw_tone           => sw_tone,
             reg_addr_valid    => reg_addr_valid,
             reg_addr_writable => reg_addr_writable,
             reg_rdata         => reg_rdata,
             fx_distortion     => fx_distortion,
             fx_soft           => fx_soft,
             fx_tremolo        => fx_tremolo,
+            fx_tone           => fx_tone,
             out_gain          => out_gain,
             drive_gain        => drive_gain,
-            threshold         => threshold
+            threshold         => threshold,
+            tremolo_depth     => tremolo_depth,
+            tremolo_step      => tremolo_step
         );
 
     stimulus : process is
@@ -142,13 +155,15 @@ begin
 
         end procedure write_reg;
 
-        -- Checks the three converted outputs.
+        -- Checks the five converted outputs.
 
         procedure check_outputs (
-            constant name : in string;
-            constant og   : in integer;
-            constant dg   : in integer;
-            constant th   : in natural
+            constant name  : in string;
+            constant og    : in integer;
+            constant dg    : in integer;
+            constant th    : in natural;
+            constant depth : in integer;
+            constant step  : in natural
         ) is
         begin
 
@@ -165,15 +180,23 @@ begin
                 report name & ": threshold " & integer'image(to_integer(threshold))
                        & ", expected " & integer'image(th)
                 severity failure;
+            assert tremolo_depth = depth
+                report name & ": tremolo_depth " & integer'image(to_integer(tremolo_depth))
+                       & ", expected " & integer'image(depth)
+                severity failure;
+            assert tremolo_step = to_unsigned(step, 32)
+                report name & ": tremolo_step 0x" & to_hstring(tremolo_step)
+                       & ", expected 0x" & to_hstring(to_unsigned(step, 32))
+                severity failure;
 
         end procedure check_outputs;
 
         -- Checks fx_* and the live-state register for given expected bits.
 
         procedure check_fx (
-            constant name    : in string;
-            constant d, s, t : in std_logic;
-            constant pc      : in std_logic
+            constant name       : in string;
+            constant d, s, t, f : in std_logic;
+            constant pc         : in std_logic
         ) is
 
             variable live : std_logic_vector(15 downto 0);
@@ -181,28 +204,30 @@ begin
         begin
 
             wait for 1 ns;
-            assert fx_distortion = d and fx_soft = s and fx_tremolo = t
+            assert fx_distortion = d and fx_soft = s and fx_tremolo = t and fx_tone = f
                 report name & ": fx = " & std_logic'image(fx_distortion)
                        & std_logic'image(fx_soft) & std_logic'image(fx_tremolo)
-                       & ", expected " & std_logic'image(d) & std_logic'image(s)
-                       & std_logic'image(t)
+                       & std_logic'image(fx_tone) & ", expected " & std_logic'image(d)
+                       & std_logic'image(s) & std_logic'image(t) & std_logic'image(f)
                 severity failure;
             live :=
             (
                 0 => d,
                 1 => s,
                 2 => t,
+                3 => f,
                 4 => sw_distortion,
                 5 => sw_soft,
                 6 => sw_tremolo,
                 7 => pc,
+                8 => sw_tone,
                 others => '0'
             );
             check_read(16#10#, to_integer(unsigned(live)));
 
         end procedure check_fx;
 
-        variable sw : unsigned(2 downto 0);
+        variable sw : unsigned(3 downto 0);
 
     begin
 
@@ -220,25 +245,28 @@ begin
         check_read(1, 256);
         check_read(2, 16384);
         check_read(3, 8192);
-        check_outputs("defaults", 1024, 65536, 2 ** 20);
+        check_read(4, 16384);
+        check_read(5, 1748);
+        check_outputs("defaults", 1024, 65536, 2 ** 20,
+                      16384, 1748 * 256);
         report "1 defaults: ok"
             severity note;
 
         -- 2. Address decode.
-        for a in 0 to 3 loop
+        for a in 0 to 5 loop
 
             check_addr(a, '1', '1');
-            check_addr(16#80# + a, '1', '1');                                         -- read flag ignored
+            check_addr(16#80# + a, '1', '1');                                              -- read flag ignored
 
         end loop;
 
         check_addr(16#10#, '1', '0');
         check_addr(16#7F#, '1', '0');
-        check_addr(16#FF#, '1', '0');                                                 -- read of 0x7F
+        check_addr(16#FF#, '1', '0');                                                      -- read of 0x7F
 
         for a in 0 to 127 loop
 
-            if (a > 3 and a /= 16#10# and a /= 16#7F#) then
+            if (a > 5 and a /= 16#10# and a /= 16#7F#) then
                 check_addr(a, '0', '0');
             end if;
 
@@ -248,60 +276,84 @@ begin
             severity note;
 
         -- 3. Writes, read back, converted outputs.
-        write_reg(1, 16#1000#);                                                       -- out gain 0.5
-        write_reg(2, 16#6000#);                                                       -- drive x3.0
-        write_reg(3, 16#7FFF#);                                                       -- threshold just under 0.5
+        write_reg(1, 16#1000#);                                                            -- out gain 0.5
+        write_reg(2, 16#6000#);                                                            -- drive x3.0
+        write_reg(3, 16#7FFF#);                                                            -- threshold just under 0.5
         check_read(1, 16#1000#);
         check_read(2, 16#6000#);
+        write_reg(4, 16#8000#);                                                            -- depth 1.0
+        write_reg(5, 16#06D4#);                                                            -- rate 5 Hz
         check_read(3, 16#7FFF#);
-        check_outputs("after writes", 16#1000# * 4, 16#6000# * 4, 16#7FFF# * 128);
+        check_read(4, 16#8000#);
+        check_read(5, 16#06D4#);
+        check_outputs("after writes", 16#1000# * 4, 16#6000# * 4, 16#7FFF# * 128,
+                      32768, 1748 * 256);
         -- -1 LSB: a negative gain must stay negative after the "00" padding
         write_reg(1, 16#FFFF#);
-        check_outputs("negative gain", -4, 16#6000# * 4, 16#7FFF# * 128);
+        check_outputs("negative gain", -4, 16#6000# * 4, 16#7FFF# * 128,
+                      32768, 1748 * 256);
+        -- depth and rate at the top of their range: both stay positive
+        write_reg(4, 16#FFFF#);
+        write_reg(5, 16#FFFF#);
+        check_outputs("max depth, rate", -4, 16#6000# * 4,
+                      16#7FFF# * 128, 65535, 16#00FFFF00#);
+        -- depth 0, slowest rate
+        write_reg(4, 0);
+        write_reg(5, 1);
+        check_outputs("depth 0, rate 1", -4, 16#6000# * 4,
+                      16#7FFF# * 128, 0, 256);
         report "3 writes: ok"
             severity note;
 
         -- 4. Writes to read-only / unknown addresses change nothing.
         write_reg(16#10#, 16#ABCD#);
         write_reg(16#7F#, 16#ABCD#);
-        write_reg(16#04#, 16#ABCD#);
+        write_reg(16#06#, 16#ABCD#);
         write_reg(16#55#, 16#ABCD#);
         check_read(0, 0);
         check_read(1, 16#FFFF#);
         check_read(2, 16#6000#);
         check_read(3, 16#7FFF#);
+        check_read(4, 0);
+        check_read(5, 1);
         check_read(16#7F#, 3);
         report "4 read-only and unknown writes ignored: ok"
             severity note;
 
         -- 5. Switches vs PC.
-        for i in 0 to 7 loop                                                          -- PC control off: switches
+        for i in 0 to 15 loop                                                              -- PC control off: switches
 
-            sw            := to_unsigned(i, 3);
+            sw            := to_unsigned(i, 4);
             sw_distortion <= sw(0);
             sw_soft       <= sw(1);
             sw_tremolo    <= sw(2);
+            sw_tone       <= sw(3);
             wait for 1 ns;
-            check_fx("switches " & integer'image(i), sw(0), sw(1), sw(2), '0');
+            check_fx("switches " & integer'image(i), sw(0), sw(1), sw(2), sw(3), '0');
 
         end loop;
 
-        -- PC control on, distortion + tremolo on, soft off
-        write_reg(0, 16#0085#);
+        -- PC control on, distortion + tremolo + tone on, soft off
+        write_reg(0, 16#008D#);
 
-        for i in 0 to 7 loop                                                          -- switches must not matter now
+        for i in 0 to 15 loop                                                              -- switches ignored
 
-            sw            := to_unsigned(i, 3);
+            sw            := to_unsigned(i, 4);
             sw_distortion <= sw(0);
             sw_soft       <= sw(1);
             sw_tremolo    <= sw(2);
+            sw_tone       <= sw(3);
             wait for 1 ns;
-            check_fx("PC control, switches " & integer'image(i), '1', '0', '1', '1');
+            check_fx("PC control, switches " & integer'image(i), '1', '0', '1', '1', '1');
 
         end loop;
 
-        write_reg(0, 16#0002#);                                                       -- back to switches (bit 7 = 0)
-        check_fx("back to switches", sw_distortion, sw_soft, sw_tremolo, '0');
+        -- PC control on, soft clip only: tone off although SW3 is up
+        write_reg(0, 16#0082#);
+        check_fx("PC control, soft only", '0', '1', '0', '0', '1');
+
+        write_reg(0, 16#000A#);                                                            -- bit 7 = 0: switches
+        check_fx("back to switches", sw_distortion, sw_soft, sw_tremolo, sw_tone, '0');
         report "5 switches vs PC: ok"
             severity note;
 
@@ -320,7 +372,10 @@ begin
         check_read(1, 256);
         check_read(2, 16384);
         check_read(3, 8192);
-        check_outputs("after reset", 1024, 65536, 2 ** 20);
+        check_read(4, 16384);
+        check_read(5, 1748);
+        check_outputs("after reset", 1024, 65536, 2 ** 20,
+                      16384, 1748 * 256);
         report "7 reset: ok"
             severity note;
 

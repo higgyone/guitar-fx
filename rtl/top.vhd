@@ -30,7 +30,8 @@
 --   distortion on, soft (SW1) off       -> hard clip
 --
 -- Tremolo (effect #3): tremolo (tremolo_stage) turns the volume up and down
--- g_tremolo_rate_hz times a second, dipping to 1 - g_tremolo_depth. It
+-- g_tremolo_rate_hz times a second (power-up default; the PC can change it),
+-- dipping to 1 - g_tremolo_depth. It
 -- comes after the distortion: a clipper squashes level changes, so a
 -- tremolo in front of it would be mostly flattened out.
 --   tremolo (SW2, or the PC) on -> tremolo, off -> passed straight through
@@ -39,9 +40,7 @@
 -- treble above g_tone_cutoff_hz, 12 dB per octave. Last of the effects, so
 -- it tames the fizz of whichever distortion is on, like a guitar's tone
 -- knob after a pedal.
---   tone (SW3) on -> filtered, off -> passed straight through
--- SW3 goes straight to the mux (through its synchroniser), not through
--- ctrl_regs: the PC can't switch the tone filter yet.
+--   tone (SW3, or the PC) on -> filtered, off -> passed straight through
 --
 -- Effects go before soft_start, so its mute and fade-in apply to the
 -- effected signal.
@@ -84,7 +83,10 @@
 -- ~1 barely bends, 3 (default) overdrive, 10 near a hard clip. Quiet notes
 -- come out about k / tanh(k) louder, so the soft clip is louder than dry.
 -- g_tremolo_rate_hz (real, Hz) and g_tremolo_depth (real, 0.0 none .. 1.0
--- dips to silence) set the tremolo: defaults 5 Hz and 0.5 (-6 dB dips).
+-- dips to silence) are the power-up tremolo settings, registers 0x05 and
+-- 0x04 (defaults 5 Hz and 0.5, -6 dB dips). The real maths runs here, at
+-- build time: depth x 2**15 (Q1.15), and rate x 2**32 / 48 kHz / 256 (the
+-- phase step / 256).
 -- g_tone_cutoff_hz (real, the -3 dB point) and g_tone_q (real, 0.707 =
 -- smooth, higher = a peak at the cutoff) set the tone filter: defaults
 -- 3 kHz and 0.707.
@@ -112,6 +114,7 @@
 library ieee;
     use ieee.std_logic_1164.all;
     use ieee.numeric_std.all;
+    use ieee.math_real.all;
 
 entity top is
     generic (
@@ -260,9 +263,12 @@ architecture rtl of top is
     signal s_fx_distortion : std_logic;             -- '1' = distortion on
     signal s_fx_soft       : std_logic;             -- '1' = soft clip, '0' = hard
     signal s_fx_tremolo    : std_logic;             -- '1' = tremolo on
+    signal s_fx_tone       : std_logic;             -- '1' = tone filter on
     signal s_out_gain      : signed(17 downto 0);   -- output gain, Q3.15
     signal s_drive_gain    : signed(17 downto 0);   -- drive before the clip, Q3.15
     signal s_threshold     : unsigned(22 downto 0); -- clip level, Q0.23
+    signal s_tremolo_depth : signed(17 downto 0);   -- tremolo depth, Q.15
+    signal s_tremolo_step  : unsigned(31 downto 0); -- tremolo step, Q0.32
 
 begin
 
@@ -350,24 +356,22 @@ begin
         );
 
     -- Tremolo: an LFO-driven gain on whatever the distortion mux sends.
-    -- g_sample_rate is left at its 48 kHz default (the real rate is
-    -- 48.0025 kHz: 0.005 % slow, inaudible).
+    -- Rate and depth come from ctrl_regs. The step is worked out for 48 kHz
+    -- (the real rate is 48.0025 kHz: 0.005 % slow, inaudible).
     tremolo : entity work.tremolo_stage
-        generic map (
-            g_rate_hz => g_tremolo_rate_hz,
-            g_depth   => g_tremolo_depth
-        )
         port map (
             clk              => s_clk,
             reset            => s_reset,
             sample_in        => s_fx_sample,
             sample_in_valid  => s_fx_sample_valid,
+            rate_step        => s_tremolo_step,
+            depth            => s_tremolo_depth,
             sample_out       => s_tremolo_sample,
             sample_out_valid => s_tremolo_sample_valid
         );
 
     -- Tone: a biquad low-pass on whatever the tremolo mux sends. Its
-    -- g_sample_rate is left at 48 kHz, as the tremolo's (0.005 % off).
+    -- g_sample_rate is left at 48 kHz, as for the tremolo (0.005 % off).
     tone_filter : entity work.tone_stage
         generic map (
             g_cutoff_hz => g_tone_cutoff_hz,
@@ -469,12 +473,15 @@ begin
         );
 
     -- Control registers: the power-up defaults are top's generics, converted
-    -- to the 16-bit register formats (dropping n fraction bits = / 2**n).
+    -- to the 16-bit register formats (dropping n fraction bits = / 2**n; the
+    -- tremolo's reals scaled and rounded: depth Q1.15, rate = step / 256).
     ctrl_stage : entity work.ctrl_regs
         generic map (
             g_default_out_gain  => g_gain / 2 ** 2,
             g_default_drive     => g_drive_gain / 2 ** 2,
-            g_default_threshold => g_threshold / 2 ** 7
+            g_default_threshold => g_threshold / 2 ** 7,
+            g_default_depth     => integer(round(g_tremolo_depth * 32768.0)),
+            g_default_rate      => integer(round(g_tremolo_rate_hz * 2.0 ** 32 / 48000.0 / 256.0))
         )
         port map (
             clk               => s_clk,
@@ -485,15 +492,19 @@ begin
             sw_distortion     => s_distortion,
             sw_soft           => s_soft_select,
             sw_tremolo        => s_tremolo,
+            sw_tone           => s_tone,
             reg_addr_valid    => s_ctrl_addr_valid,
             reg_addr_writable => s_ctrl_addr_writable,
             reg_rdata         => s_ctrl_rdata,
             fx_distortion     => s_fx_distortion,
             fx_soft           => s_fx_soft,
             fx_tremolo        => s_fx_tremolo,
+            fx_tone           => s_fx_tone,
             out_gain          => s_out_gain,
             drive_gain        => s_drive_gain,
-            threshold         => s_threshold
+            threshold         => s_threshold,
+            tremolo_depth     => s_tremolo_depth,
+            tremolo_step      => s_tremolo_step
         );
 
     -- Reset synchroniser: two flip-flops on s_clk.
@@ -561,13 +572,13 @@ begin
     s_mod_sample_valid <= s_fx_sample_valid when s_fx_tremolo = '0' else
                           s_tremolo_sample_valid;
 
-    -- Tone mux, from SW3 (synchronised): off -> the tremolo mux's output,
+    -- Tone mux, from SW3 or the PC (ctrl_regs): off -> the tremolo mux's output,
     -- straight through; on -> the filtered one. The filter runs all the
     -- time, so its state is always up to date and switching is instant.
-    s_eq_sample <= s_mod_sample when s_tone = '0' else -- tone filter off
-                   s_lowpass_sample;                   -- tone filter on
+    s_eq_sample <= s_mod_sample when s_fx_tone = '0' else -- tone filter off
+                   s_lowpass_sample;                      -- tone filter on
 
-    s_eq_sample_valid <= s_mod_sample_valid when s_tone = '0' else
+    s_eq_sample_valid <= s_mod_sample_valid when s_fx_tone = '0' else
                          s_lowpass_sample_valid;
 
     -- One set of I2S clocks for both Pmod rows.
