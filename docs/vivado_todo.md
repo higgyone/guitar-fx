@@ -20,8 +20,9 @@ Tasks that need Vivado. Tick them off on the Vivado PC and push.
   `.venv\Scripts\python -m pip install -r model\requirements.txt`.)
   Don't `run all` after `launch_simulation`: the runtime is already
   `all`, and running on past top_tb's `finish` fails with an index error.
-- [ ] UART stage 2 (2026-11-23, laptop, after the user's fx.py
-  conversions): no new files, but tremolo_stage, ctrl_regs and top
+- [x] UART stage 2 (2026-11-23, laptop, after the user's fx.py
+  conversions; done 2026-11-25: top_tb modes 0..4 pass, WNS +1.605 ns,
+  in the flash, board test passed, PR #48): no new files, but tremolo_stage, ctrl_regs and top
   changed. Run `top_tb` in all five modes (`g_mode` 0..4) with the real
   Clocking Wizard (mode 3 is now 150 Hz and writes depth 0 over the
   UART); build (check WNS), program. Then `fx.py --port COMx status`

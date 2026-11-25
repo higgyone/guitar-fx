@@ -21,6 +21,15 @@ every session (either PC); update it at the end.**
   the maths in C, overkill for this alone. The audio path stays in
   hardware either way; only the coefficients change. Also: change
   coefficients without a click (swap between samples, or ramp).
+- **Looper (decided 2026-11-25; the user wants one).** Record a riff,
+  play it back on a loop and play over it (overdub). Needs the Arty's
+  256 MB DDR3L (block RAM tops out at ~1 s on the 35T; DDR3 holds ~30 min
+  of 24-bit 48 kHz audio): Xilinx MIG memory controller IP, its AXI /
+  native interface (requests, bursts, variable latency), FIFOs between the
+  audio side and the memory side. Bandwidth is no problem (~0.3 MB/s per
+  stream). Controls: record / play / overdub / clear on a button or the
+  UART. Do it after the block-RAM delay (effect #5), which teaches the
+  circular buffer first.
 - ~~**Boot from the Arty's QSPI flash.**~~ Done 2026-11-09, see below and
   [qspi_boot.md](qspi_boot.md).
 - **Control over the Arty's USB-UART.** Commands from the PC to switch
@@ -195,6 +204,33 @@ every session (either PC); update it at the end.**
       8 Hz / depth 1.0 pulses at 7.99 Hz down to silence; 2 Hz / 0.5 dips
       to about half (the recording's own level wobbles ~±5 %).
       ![tremolo set over the UART](img/tremolo_uart.png)
+
+## Effect #6: delay / echo — in progress (2026-11-25, branch `effect-delay`)
+
+Spec effect #5. `rtl/delay_stage.vhd` (user-written, mentor mode; analyses
+clean in xvhdl -2008, not simulated yet).
+- Design: circular buffer of 2**g_addr_bits samples in block RAM
+  (g_addr_bits 15 = 32 768 samples = 683 ms = 32 block RAMs of 50);
+  read at `s_wr_ptr - delay_samples` (both g_addr_bits wide, so it wraps
+  for free); written with `in + feedback x echo` (saturating add: can reach
+  ~2.0); output = crossfade `dry x (1 - mix) + echo x mix` (can't
+  overflow). Goes after the tone filter in top; on/off as a PC control bit
+  (all 4 switches used); delay time / feedback / mix as UART registers
+  0x06..0x08.
+- Ports: `delay_samples` unsigned(g_addr_bits-1..0); `feedback`, `mix`
+  signed(17 downto 0) Q.15 (like tremolo depth).
+- Done: feedback clamp (>= 1.0 -> 0x7FFF, negative -> 0; fx.py will also
+  refuse >= 1.0 when the registers are added); block RAM in the inference
+  pattern (registered read, no reset on the array); feedback gain_stage
+  (echo x s_feedback) + `dry_delay` (input held 1 clock to line up).
+- Lessons: s_wr_ptr must move with the write (same edge reads the old
+  value), else every echo is one sample late; to_signed(value, width);
+  "is not declared" = a spelling slip; the gain_stage's data (the echo)
+  and its trigger (sample_in_valid) come from different places.
+- **Next:** saturating add s_dry + s_fb_echo -> s_wr_data / s_wr_en and the
+  pointer move; then the mix (32768 - mix, two gain_stages, plain add) ->
+  sample_out; then a testbench (small g_addr_bits, a click, check the echo
+  exactly delay_samples later and each repeat x feedback).
 
 ## Effect #5: tone filter — on the board (2026-11-20, branch `effect-tone`)
 
