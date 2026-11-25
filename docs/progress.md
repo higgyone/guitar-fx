@@ -183,6 +183,18 @@ every session (either PC); update it at the end.**
       all 5 modes with the real Clocking Wizard, build, program;
       `fx.py write tremolo_rate 8`, `write tremolo_depth 1.0`,
       `write control 0x88` (PC control, tone on) and listen.
+    - ✅ **Done 2026-11-25 (laptop, board booting stage 2 from flash):**
+      the user wrote the four conversions (slips: the depth check on
+      `depth` instead of the scaled value, `>=` refusing 1.0, `0 < reg`
+      backwards, a missing `:`); self-test passes. On the board (COM15):
+      status reads version 2, depth 0.5, rate 5.0011 Hz; `tremolo_rate 8`
+      reads back 7.9994 Hz, `tremolo_depth 1.0` reads 1.00000;
+      `control 0x88` gives PC control + tone, `control 0` back to the
+      switches. Measured with 1 kHz from the USB adapter through the board
+      and back into its mic input, `control 0x84` (PC, tremolo only):
+      8 Hz / depth 1.0 pulses at 7.99 Hz down to silence; 2 Hz / 0.5 dips
+      to about half (the recording's own level wobbles ~±5 %).
+      ![tremolo set over the UART](img/tremolo_uart.png)
 
 ## Effect #5: tone filter — on the board (2026-11-20, branch `effect-tone`)
 

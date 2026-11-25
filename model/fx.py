@@ -148,7 +148,12 @@ def depth_to_q1_15(depth: float) -> int:
         ValueError: depth is outside 0.0 .. 1.0 (above 1.0 the FPGA's gain
             would go negative).
     """
-    raise NotImplementedError("stage 2: write this")
+    q = round(depth * 2**15)  # Q1.15: 1.0 = 2**15 = 0x8000
+    # Range check on the scaled value. Q1.15 has an integer bit, so 1.0
+    # (0x8000) fits; only values above it are refused.
+    if q < 0 or q > 2**15:
+        raise ValueError(f"depth {depth} is outside 0.0 to 1.0")
+    return q  # 0 .. 0x8000: positive, so already a 16-bit value
 
 
 def q1_15_to_depth(value: int) -> float:
@@ -160,7 +165,7 @@ def q1_15_to_depth(value: int) -> float:
     Returns:
         The depth (0.0 .. 1.0 when written by depth_to_q1_15).
     """
-    raise NotImplementedError("stage 2: write this")
+    return value / 2**15  # the reverse of the scaling (unsigned: no negative case)
 
 
 def rate_to_reg(rate_hz: float) -> int:
@@ -178,7 +183,13 @@ def rate_to_reg(rate_hz: float) -> int:
     Raises:
         ValueError: the rate doesn't fit in 16 bits after rounding.
     """
-    raise NotImplementedError("stage 2: write this")
+    step = (
+        rate_hz * 2**32 / SAMPLE_RATE
+    )  # the FPGA's 32-bit phase step (rate * 2**32 / SAMPLE_RATE)
+    reg = round(step / 256)  # step / 256, rounded to a whole number
+    if reg < 0 or reg >= 2**16:  # outside 0 .. 0xFFFF (16 bits)
+        raise ValueError(f"rate {rate_hz} Hz doesn't fit register 0x05 (max about 187 Hz)")
+    return reg
 
 
 def reg_to_rate(value: int) -> float:
@@ -190,7 +201,7 @@ def reg_to_rate(value: int) -> float:
     Returns:
         The rate in Hz.
     """
-    raise NotImplementedError("stage 2: write this")
+    return value * 256 * SAMPLE_RATE / 2**32
 
 
 # --- Step 2: one command, with retries ---------------------------------------
