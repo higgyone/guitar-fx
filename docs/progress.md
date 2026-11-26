@@ -227,10 +227,21 @@ clean in xvhdl -2008, not simulated yet).
   value), else every echo is one sample late; to_signed(value, width);
   "is not declared" = a spelling slip; the gain_stage's data (the echo)
   and its trigger (sample_in_valid) come from different places.
-- **Next:** saturating add s_dry + s_fb_echo -> s_wr_data / s_wr_en and the
-  pointer move; then the mix (32768 - mix, two gain_stages, plain add) ->
-  sample_out; then a testbench (small g_addr_bits, a click, check the echo
-  exactly delay_samples later and each repeat x feedback).
+- 2026-11-26: saturating write add (25 bits, +-2**23) + s_wr_en pulse,
+  pointer on s_wr_en, crossfade mix (32768 - mix, two gain_stages,
+  saturating add). Mix clamped to 0 .. 1.0 and s_ram given an initial value
+  of zeros (both on request; without it the buffer is 'U' in simulation).
+  Slips fixed on the way: the add used sample_in not s_dry; limits 2**24
+  instead of 2**23; integer assigned to signed (to_signed); the pointer on
+  s_fb_echo_valid (one clock early: every echo 1 sample late).
+- `sim/delay_stage_tb.vhd` (Claude): 16-sample buffer, bit-exact model of
+  every output plus named checks (click at D, D = 15 across the wrap,
+  feedback 1/2/1/4/1/8, feedback and mix clamps, mix ends, saturation,
+  latency 2). **Passes in xsim: 317 checks, 287 samples.** Mutation check:
+  moving the pointer on s_fb_echo_valid fails it at the first echo.
+- **Next:** wire into top after the tone filter (PC control bit 4) and
+  ctrl_regs registers 0x06..0x08 (delay time, feedback, mix) + fx.py
+  conversions (feedback refuses >= 1.0); top_tb mode; build, board test.
 
 ## Effect #5: tone filter — on the board (2026-11-20, branch `effect-tone`)
 
