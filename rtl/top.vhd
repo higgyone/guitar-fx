@@ -14,7 +14,14 @@
 --                     +-- tone_filter -+
 --          tone mux <-+                +-- (from the tremolo mux)
 --           (SW3)  |  +---- bypass ----+
---                  v
+--                  |
+--                  +-------------------+
+--                  |                   |
+--                delay              bypass
+--                  |                   |
+--                  +-> delay mux (PC) <+
+--                            |
+--                            v
 --      da_sdin <- i2s_tx <- output_gain_stage <- soft_start
 --
 -- Distortion (effect #2), two kinds:
@@ -37,10 +44,18 @@
 --   tremolo (SW2, or the PC) on -> tremolo, off -> passed straight through
 --
 -- Tone (effect #4): tone_filter (tone_stage, a biquad low-pass) cuts the
--- treble above g_tone_cutoff_hz, 12 dB per octave. Last of the effects, so
--- it tames the fizz of whichever distortion is on, like a guitar's tone
+-- treble above g_tone_cutoff_hz, 12 dB per octave. After the distortion,
+-- so it tames the fizz of whichever distortion is on, like a guitar's tone
 -- knob after a pedal.
 --   tone (SW3, or the PC) on -> filtered, off -> passed straight through
+--
+-- Delay (effect #5): delay (delay_stage, a circular buffer in block RAM)
+-- adds an echo g_delay_ms later, repeating and fading by g_delay_feedback
+-- each time, mixed in at g_delay_mix. Last of the effects, so the echoes
+-- repeat the finished sound (distortion, tremolo and tone included), as a
+-- delay pedal at the end of a chain does.
+--   delay (PC only: no switch left) on -> echo, off -> passed straight
+--   through. Off at power-up and while the switches are in charge.
 --
 -- Effects go before soft_start, so its mute and fade-in apply to the
 -- effected signal.
@@ -90,9 +105,11 @@
 -- g_tone_cutoff_hz (real, the -3 dB point) and g_tone_q (real, 0.707 =
 -- smooth, higher = a peak at the cutoff) set the tone filter: defaults
 -- 3 kHz and 0.707.
--- TODO (delay): a paragraph like the tremolo one: g_delay_ms, g_delay_feedback,
--- g_delay_mix are the power-up delay settings, registers 0x06..0x08, and
--- the build-time maths that turns each into its register value.
+-- g_delay_ms (real, ms, 1 .. 682), g_delay_feedback (real, 0.0 one echo ..
+-- below 1.0) and g_delay_mix (real, 0.0 dry only .. 1.0 echo only) are the
+-- power-up delay settings, registers 0x06 .. 0x08 (defaults 250 ms, 0.5,
+-- 0.5). Built here like the tremolo's: time x 48 samples per ms, feedback
+-- and mix x 2**15 (Q1.15), each rounded.
 --
 -- Test tone: g_test_tone = true sends tone_gen's 1 kHz, -20 dBFS sine
 -- straight to i2s_tx instead of the audio path, to check the DAC and line
@@ -103,11 +120,13 @@
 --   uart (uart_rx + transmit FIFO + uart_tx) -> cmd_decoder (3-byte
 --   commands, replies ACK / NAK / CAN, reads reply ACK + 2 bytes) ->
 --   ctrl_regs (registers: 0x00 control, 0x01 output gain, 0x02 drive,
---   0x03 threshold, 0x10 live state, 0x7F version).
---   TODO (delay): this list is out of date: add 0x04..0x08.
+--   0x03 threshold, 0x04 tremolo depth, 0x05 tremolo rate, 0x06 delay
+--   time, 0x07 delay feedback, 0x08 delay mix, 0x10 live state, 0x7F
+--   version).
 -- ctrl_regs gives the effects their on/off bits (the switches while
 -- register 0x00 bit 7 is '0', which is how it starts; the PC's bits once
--- it sets bit 7) and their gains and threshold. With no PC commands the
+-- it sets bit 7; the delay has no switch, so only the PC turns it on) and
+-- their settings (gains, threshold, tremolo, delay). With no PC commands the
 -- pedal behaves exactly as with the switches and generics alone.
 -- PC side: model/fx.py (write / read / status). Protocol and register map:
 -- docs/uart.md section 5. g_uart_clks_per_bit = s_clk / baud rate: 853 for
@@ -122,20 +141,21 @@ library ieee;
 
 entity top is
     generic (
-        g_mute_samples    : natural                               := 144000;  -- 3 s at 48 kHz
-        g_ramp_bits       : natural                               := 11;      -- 2,048-sample ramp
-        g_gain            : integer range -2 ** 17 to 2 ** 17 - 1 := 1024;    -- 1/32 = -30.1 dB in Q3.15
-        g_test_tone       : boolean                               := false;   -- true: 1 kHz test tone to the DAC
-        g_threshold       : integer range 0 to 2 ** 23 - 1        := 2 ** 20; -- clip level, Q0.23; 2**20 = 0.125 (max 2**23 - 1 = no clipping)
-        g_drive_gain      : integer range -2 ** 17 to 2 ** 17 - 1 := 2 ** 16; -- drive before the clip, Q3.15; 2**16 = x2.0 (2**15 = x1.0)
-        g_soft_drive      : real                                  := 3.0;     -- soft clip drive k (tanh), 3.0 = overdrive
-        g_tremolo_rate_hz : real                                  := 5.0;     -- tremolo speed, Hz
-        g_tremolo_depth   : real                                  := 0.5;     -- how far the tremolo dips: 0.0 none .. 1.0 to silence
-        g_tone_cutoff_hz  : real                                  := 3000.0;  -- tone filter cutoff (-3 dB), Hz
-        g_tone_q          : real                                  := 0.707;   -- tone filter Q: 0.707 = smooth (Butterworth)
-        -- TODO (delay): three real generics, like g_tremolo_depth:
-        --   g_delay_ms 250.0, g_delay_feedback 0.5, g_delay_mix 0.5
-        g_uart_clks_per_bit : natural := 853 -- clocks per UART bit (115 200 baud)
+        g_mute_samples      : natural                               := 144000;  -- 3 s at 48 kHz
+        g_ramp_bits         : natural                               := 11;      -- 2,048-sample ramp
+        g_gain              : integer range -2 ** 17 to 2 ** 17 - 1 := 1024;    -- 1/32 = -30.1 dB in Q3.15
+        g_test_tone         : boolean                               := false;   -- true: 1 kHz test tone to the DAC
+        g_threshold         : integer range 0 to 2 ** 23 - 1        := 2 ** 20; -- clip level, Q0.23; 2**20 = 0.125 (max 2**23 - 1 = no clipping)
+        g_drive_gain        : integer range -2 ** 17 to 2 ** 17 - 1 := 2 ** 16; -- drive before the clip, Q3.15; 2**16 = x2.0 (2**15 = x1.0)
+        g_soft_drive        : real                                  := 3.0;     -- soft clip drive k (tanh), 3.0 = overdrive
+        g_tremolo_rate_hz   : real                                  := 5.0;     -- tremolo speed, Hz
+        g_tremolo_depth     : real                                  := 0.5;     -- how far the tremolo dips: 0.0 none .. 1.0 to silence
+        g_tone_cutoff_hz    : real                                  := 3000.0;  -- tone filter cutoff (-3 dB), Hz
+        g_tone_q            : real                                  := 0.707;   -- tone filter Q: 0.707 = smooth (Butterworth)
+        g_delay_ms          : real                                  := 250.0;   -- echo time, ms (1 .. 682)
+        g_delay_feedback    : real                                  := 0.5;     -- echo repeats: 0.0 one echo .. below 1.0
+        g_delay_mix         : real                                  := 0.5;     -- echo level: 0.0 dry only .. 1.0 echo only
+        g_uart_clks_per_bit : natural                               := 853      -- clocks per UART bit (115 200 baud)
     );
     port (
         clk100mhz     : in    std_logic; -- 100 MHz board clock (E3)
@@ -282,9 +302,9 @@ architecture rtl of top is
     signal s_tremolo_depth  : signed(17 downto 0);   -- tremolo depth, Q.15
     signal s_tremolo_step   : unsigned(31 downto 0); -- tremolo step, Q0.32
     signal s_fx_delay       : std_logic;             -- '1' = delay on
-    signal s_delay_samples  : unsigned(14 downto 0); -- TODO: delay time in samples (delay_stage's port width)
-    signal s_delay_feedback : signed(17 downto 0);   -- TODO: feedback, Q.15
-    signal s_delay_mix      : signed(17 downto 0);   -- TODO: mix, Q.15
+    signal s_delay_samples  : unsigned(14 downto 0); -- delay time, samples
+    signal s_delay_feedback : signed(17 downto 0);   -- delay feedback, Q.15
+    signal s_delay_mix      : signed(17 downto 0);   -- delay mix, Q.15
 
 begin
 
@@ -403,8 +423,7 @@ begin
         );
 
     -- Delay: a circular-buffer echo (block RAM) on whatever the tone mux
-    -- sends. Time, feedback and mix come from ctrl_regs (for now: the
-    -- temporary values below).
+    -- sends. Time, feedback and mix come from ctrl_regs.
     delay : entity work.delay_stage
         port map (
             clk              => s_clk,
@@ -418,8 +437,7 @@ begin
             sample_out_valid => s_delay_sample_valid
         );
 
-    -- TODO: soft_start's sample_in / sample_in_valid -> the delay mux's
-    -- output (s_time_sample), not s_eq_sample.
+    -- Soft start: mutes, then fades in, whatever the delay mux sends.
     soft_start_stage : entity work.soft_start
         generic map (
             g_mute_samples => g_mute_samples,
@@ -515,11 +533,10 @@ begin
             g_default_drive     => g_drive_gain / 2 ** 2,
             g_default_threshold => g_threshold / 2 ** 7,
             g_default_depth     => integer(round(g_tremolo_depth * 32768.0)),
-            g_default_rate      => integer(round(g_tremolo_rate_hz * 2.0 ** 32 / 48000.0 / 256.0))
-        -- TODO (delay): mind the ',' above. Three more:
-        --   g_default_delay    = ms -> samples (48 samples per ms), rounded
-        --   g_default_feedback = like g_default_depth
-        --   g_default_mix      = like g_default_depth
+            g_default_rate      => integer(round(g_tremolo_rate_hz * 2.0 ** 32 / 48000.0 / 256.0)),
+            g_default_delay     => integer(round(g_delay_ms / 1000.0 * 48000.0)),
+            g_default_feedback  => integer(round(g_delay_feedback * 32768.0)),
+            g_default_mix       => integer(round(g_delay_mix * 32768.0))
         )
         port map (
             clk               => s_clk,
@@ -542,9 +559,11 @@ begin
             drive_gain        => s_drive_gain,
             threshold         => s_threshold,
             tremolo_depth     => s_tremolo_depth,
-            tremolo_step      => s_tremolo_step
-        -- TODO (delay): mind the ',' above. The four new outputs to
-        -- s_fx_delay, s_delay_samples, s_delay_feedback, s_delay_mix
+            tremolo_step      => s_tremolo_step,
+            fx_delay          => s_fx_delay,
+            delay_samples     => s_delay_samples,
+            delay_feedback    => s_delay_feedback,
+            delay_mix         => s_delay_mix
         );
 
     -- Reset synchroniser: two flip-flops on s_clk.
@@ -624,20 +643,10 @@ begin
     -- Delay mux, from the PC (ctrl_regs; no switch left): off -> the tone
     -- mux's output, straight through; on -> the delay's. The delay runs all
     -- the time, so its buffer is always full and switching is instant.
-    s_time_sample       <= s_eq_sample when s_fx_delay = '0' else       -- tone filter off
-                           s_delay_sample;
-    s_time_sample_valid <= s_eq_sample_valid when s_fx_delay = '0' else -- tone filter off
+    s_time_sample       <= s_eq_sample when s_fx_delay = '0' else -- delay off
+                           s_delay_sample;                        -- delay on
+    s_time_sample_valid <= s_eq_sample_valid when s_fx_delay = '0' else
                            s_delay_sample_valid;
-
-    -- TODO (delay): delete these four lines once ctrl_regs drives the
-    -- signals (two drivers on one signal: 'X' in sim, an error in synthesis).
-    -- TEMPORARY until ctrl_regs drives these (next step): fixed settings so
-    -- top builds and the delay can be heard. Remove when ctrl_regs has
-    -- registers 0x06 .. 0x08 and control bit 4.
-    s_fx_delay       <= '1';                    -- TODO: on or off?
-    s_delay_samples  <= to_unsigned(12000, 15); -- TODO: 250 ms at 48 kHz, as an unsigned of the right width
-    s_delay_feedback <= to_signed(16384, 18);   -- TODO: 0.5 in Q.15
-    s_delay_mix      <= to_signed(16384, 18);   -- TODO: 0.5 in Q.15
 
     -- One set of I2S clocks for both Pmod rows.
     da_mclk <= s_mclk;

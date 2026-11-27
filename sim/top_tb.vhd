@@ -32,6 +32,20 @@
 --                output bit for bit in place, and records the filtered
 --                value of each ADC frame's sample; the DAC must then play
 --                exactly that value.
+--              5 delay: all switches '0' (dry), delay 5 samples
+--                (c_delay_ms = 5/48 ms, so top's ms -> samples conversion
+--                is checked too), feedback 0.75, mix 0.25. The delay has
+--                no switch, so the PC turns it on: after check 7's
+--                commands it writes control 0x0090 (PC control + delay;
+--                the other effects off, as the switches have them).
+--                delay_model watches the delay's real input inside top
+--                (s_eq_sample, external names), runs a bit-exact model
+--                (circular buffer, gain_stage rounding, saturating adds),
+--                checks every delay_stage output in place, and records
+--                each ADC frame's value. The DAC must play dry before the
+--                write, the model's value after it, and dry again after
+--                the button (the reset clears control: delay off). The
+--                frames around the write may be either.
 --              SW2 and SW3 are '0' in the other modes, so those still check
 --              exact output.
 --   ADC model  CS5343 on ad_mclk / ad_lrck / ad_sclk / ad_sdout: drives sdout
@@ -60,20 +74,23 @@
 --      (+threshold and -threshold) and unclipped non-zero ones. Soft clip:
 --      positive and negative outputs. Tremolo: exact frames at depth 0
 --      (before the button) and dipped ones (after). Tone filter: outputs that differ
---      from the dry sample, and every filter output checked in place. So
---      each path is exercised through the real chain.
+--      from the dry sample, and every filter output checked in place.
+--      Delay: frames at the DAC that differ from dry (the echo is in),
+--      every delay output checked in place, and dry frames after the
+--      button. So each path is exercised through the real chain.
 --   7. UART commands (g_uart_clks_per_bit 16), through uart, cmd_decoder
 --      and ctrl_regs: soon after lock the PC model sends, back-to-back:
---      read version (0xFF) -> ACK 0x00 0x02; read live state (0x90) -> ACK
+--      read version (0xFF) -> ACK 0x00 0x03; read live state (0x90) -> ACK
 --      + SW3 in bit 8, the effects and switches in bits 0..6 (effects =
 --      switches, since the PC has not taken control); read an unknown
 --      register (0xC0) -> NAK; read tremolo depth (0x84) -> ACK 0x40 0x00
 --      (top's 0.5 x 2**15); read tremolo rate (0x85) -> ACK 0xCC 0xCD
 --      (top's 150 Hz x 2**32 / 48 kHz / 256 = 52 428.8, rounded); write
 --      tremolo depth 0 (0x04) -> ACK. The depth only matters with the
---      tremolo on (mode 3); control is never written, so the switches
---      still decide and checks 4..6 still hold. Checked before the final
---      report.
+--      tremolo on (mode 3). Mode 5 only: then write control 0x0090 (0x00)
+--      -> ACK, which turns the delay on. In the other modes control is
+--      never written, so the switches still decide and checks 4..6 still
+--      hold. Checked before the final report.
 --
 -- The test pattern (test_sample) mixes a 0.9 full-scale sine with +/-
 -- full scale and three small values: 2**18 and -(2**18 + 12345) (x2 stays
@@ -81,7 +98,7 @@
 --
 -- Run (repo root, PowerShell), Vivado: set top_tb as the simulation top,
 -- Run Behavioral Simulation (Vivado compiles the Clocking Wizard's model).
--- For the other runs, set g_mode=1 (hard), 2 (soft), 3 (tremolo) or 4 (tone) in the
+-- For the other runs, set g_mode=1 (hard), 2 (soft), 3 (tremolo), 4 (tone) or 5 (delay) in the
 -- simulation settings (Generics/Parameters). xsim CLI: xelab top_tb
 -- -L unisim -generic_top g_mode=2 (the .bat launcher splits "x=y", so put
 -- the xelab arguments in a file and pass -f file).
@@ -94,7 +111,7 @@ library ieee;
 
 entity top_tb is
     generic (
-        g_mode : natural range 0 to 4 := 0 -- 0 dry, 1 hard clip, 2 soft clip, 3 tremolo, 4 tone filter
+        g_mode : natural range 0 to 5 := 0 -- 0 dry, 1 hard clip, 2 soft clip, 3 tremolo, 4 tone filter, 5 delay
     );
 end entity top_tb;
 
@@ -118,6 +135,12 @@ architecture sim of top_tb is
     constant c_no_frame      : integer := integer'low;                   -- "no filter input in this frame"
     constant c_uart_clks     : natural := 16;                            -- g_uart_clks_per_bit for the test
     constant c_uart_bit      : time    := c_uart_clks * 10.172 ns;       -- one UART bit at s_clk 98.305 MHz
+    constant c_delay_ms      : real    := 5.0 / 48.0;                    -- delay time, ms: 5 samples
+    constant c_delay_d       : natural := 5;                             -- the same in samples, for the model
+    constant c_delay_fb      : real    := 0.75;                          -- delay feedback
+    constant c_delay_mix     : real    := 0.25;                          -- delay mix (not 0.5: a swapped dry / echo gain shows)
+    constant c_delay_fb_q    : integer := 24576;                         -- 0.75 in Q.15
+    constant c_delay_mix_q   : integer := 8192;                          -- 0.25 in Q.15
 
     -- Test sample n: a sine, 16 frames per cycle, 0.9 of full scale, with
     -- full-scale values and small values now and then.
@@ -177,7 +200,7 @@ architecture sim of top_tb is
 
     begin
 
-        if (g_mode = 0 or g_mode = 3 or g_mode = 4) then                           -- 4: see tone_model
+        if (g_mode = 0 or g_mode = 3 or g_mode = 4 or g_mode = 5) then             -- 4, 5: see the models
             return x;
         elsif (g_mode = 2) then
             if (x >= 0) then
@@ -242,6 +265,47 @@ architecture sim of top_tb is
 
     end function tone_coeff;
 
+    -- Saturate to Q1.23, as the delay's adds do.
+
+    function sat24 (
+        v : integer
+    ) return integer is
+    begin
+
+        if (v > 2 ** 23 - 1) then
+            return 2 ** 23 - 1;
+        elsif (v < -(2 ** 23)) then
+            return -(2 ** 23);
+        else
+            return v;
+        end if;
+
+    end function sat24;
+
+    -- gain_stage, for delay_model: Q1.23 x Q.15 (18 bits), + 2**14, keep
+    -- bits 38..15, saturate to Q1.23.
+
+    function model_gain (
+        x : integer;
+        g : integer
+    ) return integer is
+
+        variable p : signed(41 downto 0);
+
+    begin
+
+        p := to_signed(x, 24) * to_signed(g, 18) + to_signed(2 ** 14, 42);
+
+        if (p(41 downto 38) = "0000" or p(41 downto 38) = "1111") then
+            return to_integer(p(38 downto 15));
+        elsif (p(41) = '0') then
+            return 2 ** 23 - 1;
+        else
+            return -(2 ** 23);
+        end if;
+
+    end function model_gain;
+
     signal clk100mhz     : std_logic := '0';
     signal reset_btn     : std_logic := '0';
     signal distortion_sw : std_logic := '0'; -- SW0: set from g_mode below
@@ -265,7 +329,7 @@ architecture sim of top_tb is
 
     type t_uart_bytes is array (natural range <>) of std_logic_vector(7 downto 0);
 
-    constant c_uart_cmds  : t_uart_bytes(0 to 17) :=
+    constant c_uart_cmds  : t_uart_bytes(0 to 20) :=
     (
         x"FF",
         x"00",
@@ -284,10 +348,14 @@ architecture sim of top_tb is
         x"00",                                                     -- read 0x05 tremolo rate
         x"04",
         x"00",
-        x"00"                                                      -- write 0x04 tremolo depth = 0
+        x"00",                                                     -- write 0x04 tremolo depth = 0
+        x"00",
+        x"00",
+        x"90"                                                      -- mode 5 only: write 0x00 control = PC + delay
     );
     signal   uart_replied : boolean               := false;
     signal   depth0_frame : integer               := integer'high; -- ADC frame when the depth-0 write was ACKed
+    signal   delay_frame  : integer               := integer'high; -- mode 5: ADC frame when the delay-on write was ACKed
 
     type t_sent is array (0 to c_frames + 2) of integer;
 
@@ -301,12 +369,17 @@ architecture sim of top_tb is
     signal tone_out       : t_sent  := (others => c_no_frame);
     signal n_tone_checked : natural := 0; -- filter outputs checked in place
 
+    -- Mode 5: the same for the delay.
+    signal delay_in        : t_sent  := (others => c_no_frame);
+    signal delay_out       : t_sent  := (others => c_no_frame);
+    signal n_delay_checked : natural := 0; -- delay outputs checked in place
+
 begin
 
     clk100mhz <= not clk100mhz after c_clk100_period / 2;
 
     -- The switches are held for the whole run (switching is not tested here).
-    distortion_sw <= '0' when g_mode = 0 or g_mode = 3 or g_mode = 4 else
+    distortion_sw <= '0' when g_mode = 0 or g_mode = 3 or g_mode = 4 or g_mode = 5 else
                      '1';
     soft_clip_sw  <= '1' when g_mode = 2 else
                      '0';
@@ -328,6 +401,9 @@ begin
             g_tremolo_depth     => c_trem_depth,
             g_tone_cutoff_hz    => c_tone_cutoff,
             g_tone_q            => c_tone_q,
+            g_delay_ms          => c_delay_ms,
+            g_delay_feedback    => c_delay_fb,
+            g_delay_mix         => c_delay_mix,
             g_uart_clks_per_bit => c_uart_clks
         )
         port map (
@@ -350,7 +426,8 @@ begin
             uart_rxd_out  => uart_rxd_out
         );
 
-    -- 7. UART commands: the PC sends five reads and a write back-to-back on
+    -- 7. UART commands: the PC sends five reads and a write (two in mode 5)
+    -- back-to-back on
     -- uart_txd_in soon after lock (well before the button at frame
     -- c_press_at); the replies on uart_rxd_out are checked in uart_pc_rx.
     uart_pc_tx : process is
@@ -361,6 +438,7 @@ begin
 
         for n in c_uart_cmds'range loop
 
+            exit when n >= 18 and g_mode /= 5;    -- the control write: mode 5 only
             uart_txd_in <= '0';                   -- start bit
             wait for c_uart_bit;
 
@@ -384,7 +462,7 @@ begin
 
         variable b      : std_logic_vector(7 downto 0);
         variable live   : std_logic_vector(7 downto 0);
-        variable expect : t_uart_bytes(0 to 13);
+        variable expect : t_uart_bytes(0 to 14);
 
     begin
 
@@ -407,7 +485,7 @@ begin
         (
             x"06",
             x"00",
-            x"02",                                                                                -- version: ACK, 2
+            x"03",                                                                                -- version: ACK, 3
             x"06",
             "0000000" & tone_sw,
             live,                                                                                 -- live: ACK, value
@@ -418,10 +496,13 @@ begin
             x"06",
             x"CC",
             x"CD",                                                                                -- rate: ACK, 150 Hz
+            x"06",                                                                                -- write depth 0: ACK
             x"06"
-        );                                                                                        -- write depth 0: ACK
+        );                                                                                        -- mode 5: write control: ACK
 
         for n in expect'range loop
+
+            exit when n = 14 and g_mode /= 5;
 
             wait until uart_rxd_out = '0';                                                        -- start bit
             wait for c_uart_bit / 2;
@@ -445,8 +526,10 @@ begin
                        & ", expected 0x" & to_hstring(expect(n))
                 severity failure;
 
-            if (n = expect'high) then
+            if (n = 13) then
                 depth0_frame <= adc_frame;                                                        -- depth 0 from here
+            elsif (n = 14) then
+                delay_frame <= adc_frame;                                                         -- delay on from about here
             end if;
 
         end loop;
@@ -547,6 +630,78 @@ begin
         end loop;
 
     end process tone_model;
+
+    -- Mode 5: the delay model, on top's own clock and reset, fed with the
+    -- delay's real input. Per sample: echo = buffer[ptr - D]; write
+    -- buffer[ptr] = sat(in + echo x feedback); out = sat(in x (1 - mix) +
+    -- echo x mix); ptr + 1 (wraps at 2**15). Reset sets ptr to 0 and keeps
+    -- the buffer, as delay_stage does. Checks every delay output in place,
+    -- and records each frame's in / out for the DAC check.
+    delay_model : process is
+
+        alias s_clk     is << signal .top_tb.dut.s_clk : std_logic >>;
+        alias s_reset   is << signal .top_tb.dut.s_reset : std_logic >>;
+        alias d_in      is << signal .top_tb.dut.s_eq_sample : signed(23 downto 0) >>;
+        alias d_in_vld  is << signal .top_tb.dut.s_eq_sample_valid : std_logic >>;
+        alias d_out     is << signal .top_tb.dut.s_delay_sample : signed(23 downto 0) >>;
+        alias d_out_vld is << signal .top_tb.dut.s_delay_sample_valid : std_logic >>;
+
+        type t_buf is array (0 to 2 ** 15 - 1) of integer;
+
+        variable buf       : t_buf   := (others => 0);
+        variable ptr       : natural := 0;
+        variable x         : integer;
+        variable echo      : integer;
+        variable y         : integer;
+        variable pending   : boolean := false; -- an output is due
+        variable pending_y : integer;
+        variable n         : natural := 0;
+
+    begin
+
+        if (g_mode /= 5) then
+            wait;
+        end if;
+
+        loop
+
+            wait until rising_edge(s_clk);
+
+            -- The delay's output, against the model.
+            if (d_out_vld = '1') then
+                assert pending
+                    report "delay: output with no input to match"
+                    severity failure;
+                assert to_integer(d_out) = pending_y
+                    report "delay output " & integer'image(to_integer(d_out)) & ", model "
+                           & integer'image(pending_y)
+                    severity failure;
+                pending         := false;
+                n               := n + 1;
+                n_delay_checked <= n;
+            end if;
+
+            -- The model steps on this edge, like the DUT.
+            if (s_reset = '1') then
+                ptr     := 0;
+                pending := false;
+            elsif (d_in_vld = '1') then
+                x         := to_integer(d_in);
+                echo      := buf((ptr - c_delay_d) mod 2 ** 15);
+                y         := sat24(model_gain(x, 32768 - c_delay_mix_q) + model_gain(echo, c_delay_mix_q));
+                buf(ptr)  := sat24(x + model_gain(echo, c_delay_fb_q));
+                ptr       := (ptr + 1) mod 2 ** 15;
+                pending   := true;
+                pending_y := y;
+                if (adc_frame >= 0 and adc_frame <= c_frames + 2) then
+                    delay_in(adc_frame)  <= x;
+                    delay_out(adc_frame) <= y;
+                end if;
+            end if;
+
+        end loop;
+
+    end process delay_model;
 
     -- 1. The MMCM must lock; the button is pressed at frame c_press_at.
     board : process is
@@ -698,6 +853,9 @@ begin
         variable n_exact  : natural   := 0; -- tremolo: frames exact at depth 0 (before the button)
         variable found    : boolean;        -- tone: the model has this frame's value
         variable n_filt   : natural   := 0; -- tone: frames where the filter changed the sample
+        variable src      : integer;        -- delay: the ADC frame this DAC frame plays
+        variable n_echo   : natural   := 0; -- delay: frames played with the echo in (/= dry)
+        variable n_after  : natural   := 0; -- delay: dry frames after the button (delay off)
 
     begin
 
@@ -736,6 +894,23 @@ begin
                 found := tone_in(adc_frame - 1) = sent(adc_frame - 1);
                 if (found) then
                     exp := tone_out(adc_frame - 1);
+                end if;
+            end if;
+
+            -- Delay: the model's value once the PC's write has turned it
+            -- on, until the button turns it off; dry otherwise. Around the
+            -- write either is right. (src - 1 > delay_frame, not src >
+            -- delay_frame + 1: delay_frame starts at integer'high.)
+            if (g_mode = 5) then
+                src := adc_frame - 1;
+                if (src - 1 > delay_frame and (press_at < 0 or src < press_at)) then
+                    found := delay_in(src) = sent(src);
+                    if (found) then
+                        exp := delay_out(src);
+                    end if;
+                elsif (src >= delay_frame - 1 and src - 1 <= delay_frame
+                       and delay_in(src) = sent(src) and got = delay_out(src)) then
+                    exp := got;                                                                                               -- switch-over: delay already on
                 end if;
             end if;
 
@@ -803,7 +978,7 @@ begin
                     -- After the ramp: exactly expected_out(last frame's ADC
                     -- sample); tone: exactly the model's filtered value.
                     assert found
-                        report "frame " & integer'image(adc_frame) & ": no tone filter input recorded for ADC frame "
+                        report "frame " & integer'image(adc_frame) & ": no tone filter / delay input recorded for ADC frame "
                                & integer'image(adc_frame - 1) & " (sample " & integer'image(sent(adc_frame - 1)) & ")"
                         severity failure;
                     assert got = exp
@@ -813,15 +988,22 @@ begin
                                & integer'image(adc_frame - 1) & ")"
                         severity failure;
                     n_pass := n_pass + 1;
-                    if (g_mode = 4) then
+                    if (g_mode = 5) then
                         if (exp /= sent(adc_frame - 1)) then
-                            n_filt := n_filt + 1;                                                                      -- tone: the filter changed it
+                            n_echo := n_echo + 1;                                                                             -- delay: the echo is in
+                        end if;
+                        if (press_at >= 0) then
+                            n_after := n_after + 1;                                                                           -- delay: off after the button
+                        end if;
+                    elsif (g_mode = 4) then
+                        if (exp /= sent(adc_frame - 1)) then
+                            n_filt := n_filt + 1;                                                                             -- tone: the filter changed it
                         end if;
                     elsif (g_mode = 2) then
                         if (exp > 0) then
-                            n_clip_p := n_clip_p + 1;                                                                  -- soft: positive outputs
+                            n_clip_p := n_clip_p + 1;                                                                         -- soft: positive outputs
                         elsif (exp < 0) then
-                            n_clip_n := n_clip_n + 1;                                                                  -- soft: negative outputs
+                            n_clip_n := n_clip_n + 1;                                                                         -- soft: negative outputs
                         end if;
                     elsif (exp = c_threshold) then
                         n_clip_p := n_clip_p + 1;
@@ -839,7 +1021,20 @@ begin
                 report "coverage: " & integer'image(runs) & " pass-through stretch(es), "
                        & integer'image(n_pass) & " frames checked"
                 severity failure;
-            if (g_mode = 4) then
+            if (g_mode = 5) then
+                -- 6. Delay: the echo reached the DAC, every delay output
+                -- matched the model in place, and dry again after the button.
+                assert n_echo > 10 and n_delay_checked > c_frames - 10 and n_after > 5
+                    report "delay coverage: " & integer'image(n_echo) & " frames with the echo, "
+                           & integer'image(n_delay_checked) & " delay outputs checked, "
+                           & integer'image(n_after) & " dry after the button"
+                    severity failure;
+                report "DELAY run: " & integer'image(n_pass) & " frames exact at the DAC, in "
+                       & integer'image(runs) & " stretches; " & integer'image(n_echo)
+                       & " with the echo, " & integer'image(n_after) & " dry after the button; "
+                       & integer'image(n_delay_checked) & " delay outputs checked in place"
+                    severity note;
+            elsif (g_mode = 4) then
                 -- 6. Tone: the filter really changes the sound, and every
                 -- output of it matched the model in place.
                 assert n_filt > c_frames / 2 and n_tone_checked > c_frames - 10
