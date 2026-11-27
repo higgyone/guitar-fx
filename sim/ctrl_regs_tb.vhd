@@ -4,25 +4,30 @@
 -- switches directly, and checks every output.
 --
 -- Checks:
---   1. After reset: the defaults read back (0x00..0x05), and the outputs
+--   1. After reset: the defaults read back (0x00..0x08), and the outputs
 --      are the defaults converted: out_gain 256 & "00" = 1024 (1/32 in
 --      Q3.15), drive 16384 & "00" = 65536 (x2.0), threshold 8192 & 7 zeros
 --      = 2**20 (0.125 in Q0.23), tremolo depth 16384 (0.5 in Q.15), tremolo
---      step 1748 * 256 = 447 488 (5 Hz). PC control off: fx_* follow the
+--      step 1748 * 256 = 447 488 (5 Hz), delay 12000 samples (250 ms),
+--      feedback and mix 16384 (0.5). PC control off: fx_* follow the
 --      switches.
---   2. Address decode: 0x00..0x05 valid + writable; 0x10 and 0x7F valid,
+--   2. Address decode: 0x00..0x08 valid + writable; 0x10 and 0x7F valid,
 --      read only; every other number not valid. The read flag (bit 7) is
 --      ignored: 0x81 answers like 0x01.
 --   3. Writes: each register stores reg_data, reads it back, and its output
 --      changes to the converted value. Depth 0x8000 (1.0) and 0xFFFF must
 --      come out positive (read as signed first, 0x8000 would be -1.0);
 --      rate 0xFFFF gives step 0x00FFFF00 (8 zeros on top, 8 at the bottom).
+--      Delay feedback and mix 0x8000 / 0xFFFF stay positive the same way.
+--      Delay time clamp: 0x8000 and 0xFFFF read back as written but give
+--      delay_samples 0x7FFF; 0x7FFF, 1 and 0 pass straight through.
 --   4. A write pulse to a read-only or unknown address changes nothing.
 --   5. Switches vs PC: control bit 7 = 0 -> fx_* = switches (all 16
---      combinations); bit 7 = 1 -> fx_* = control bits 0..3, whatever the
+--      combinations), fx_delay '0' even with control bit 4 set (no
+--      switch); bit 7 = 1 -> fx_* = control bits 0..4, whatever the
 --      switches do. The live-state register 0x10 matches every time
---      (bits 0..3 fx_*, 4..6 SW0..SW2, 7 PC control, 8 SW3).
---   6. Version at 0x7F = g_version (set to 3 here).
+--      (bits 0..3 fx_*, 4..6 SW0..SW2, 7 PC control, 8 SW3, 9 fx_delay).
+--   6. Version at 0x7F = g_version (the default, 3).
 --   7. Reset after writes brings the defaults back.
 --
 -- Run (repo root, PowerShell):
@@ -61,15 +66,16 @@ architecture sim of ctrl_regs_tb is
     signal threshold         : unsigned(22 downto 0);
     signal tremolo_depth     : signed(17 downto 0);
     signal tremolo_step      : unsigned(31 downto 0);
+    signal fx_delay          : std_logic;
+    signal delay_samples     : unsigned(14 downto 0);
+    signal delay_feedback    : signed(17 downto 0);
+    signal delay_mix         : signed(17 downto 0);
 
 begin
 
     clk <= not clk after clk_period / 2;
 
     dut : entity work.ctrl_regs
-        generic map (
-            g_version => 3
-        )
         port map (
             clk               => clk,
             reset             => reset,
@@ -91,7 +97,11 @@ begin
             drive_gain        => drive_gain,
             threshold         => threshold,
             tremolo_depth     => tremolo_depth,
-            tremolo_step      => tremolo_step
+            tremolo_step      => tremolo_step,
+            fx_delay          => fx_delay,
+            delay_samples     => delay_samples,
+            delay_feedback    => delay_feedback,
+            delay_mix         => delay_mix
         );
 
     stimulus : process is
@@ -191,11 +201,38 @@ begin
 
         end procedure check_outputs;
 
+        -- Checks the three delay outputs.
+
+        procedure check_delay (
+            constant name    : in string;
+            constant samples : in natural;
+            constant fb      : in integer;
+            constant mx      : in integer
+        ) is
+        begin
+
+            wait for 1 ns;
+            assert delay_samples = samples
+                report name & ": delay_samples " & integer'image(to_integer(delay_samples))
+                       & ", expected " & integer'image(samples)
+                severity failure;
+            assert delay_feedback = fb
+                report name & ": delay_feedback " & integer'image(to_integer(delay_feedback))
+                       & ", expected " & integer'image(fb)
+                severity failure;
+            assert delay_mix = mx
+                report name & ": delay_mix " & integer'image(to_integer(delay_mix))
+                       & ", expected " & integer'image(mx)
+                severity failure;
+
+        end procedure check_delay;
+
         -- Checks fx_* and the live-state register for given expected bits.
 
         procedure check_fx (
             constant name       : in string;
             constant d, s, t, f : in std_logic;
+            constant dl         : in std_logic;
             constant pc         : in std_logic
         ) is
 
@@ -210,6 +247,10 @@ begin
                        & std_logic'image(fx_tone) & ", expected " & std_logic'image(d)
                        & std_logic'image(s) & std_logic'image(t) & std_logic'image(f)
                 severity failure;
+            assert fx_delay = dl
+                report name & ": fx_delay " & std_logic'image(fx_delay)
+                       & ", expected " & std_logic'image(dl)
+                severity failure;
             live :=
             (
                 0 => d,
@@ -221,6 +262,7 @@ begin
                 6 => sw_tremolo,
                 7 => pc,
                 8 => sw_tone,
+                9 => dl,
                 others => '0'
             );
             check_read(16#10#, to_integer(unsigned(live)));
@@ -247,26 +289,30 @@ begin
         check_read(3, 8192);
         check_read(4, 16384);
         check_read(5, 1748);
+        check_read(6, 12000);
+        check_read(7, 16384);
+        check_read(8, 16384);
         check_outputs("defaults", 1024, 65536, 2 ** 20,
                       16384, 1748 * 256);
+        check_delay("defaults", 12000, 16384, 16384);
         report "1 defaults: ok"
             severity note;
 
         -- 2. Address decode.
-        for a in 0 to 5 loop
+        for a in 0 to 8 loop
 
             check_addr(a, '1', '1');
-            check_addr(16#80# + a, '1', '1');                                              -- read flag ignored
+            check_addr(16#80# + a, '1', '1');                                                    -- read flag ignored
 
         end loop;
 
         check_addr(16#10#, '1', '0');
         check_addr(16#7F#, '1', '0');
-        check_addr(16#FF#, '1', '0');                                                      -- read of 0x7F
+        check_addr(16#FF#, '1', '0');                                                            -- read of 0x7F
 
         for a in 0 to 127 loop
 
-            if (a > 5 and a /= 16#10# and a /= 16#7F#) then
+            if (a > 8 and a /= 16#10# and a /= 16#7F#) then
                 check_addr(a, '0', '0');
             end if;
 
@@ -276,13 +322,13 @@ begin
             severity note;
 
         -- 3. Writes, read back, converted outputs.
-        write_reg(1, 16#1000#);                                                            -- out gain 0.5
-        write_reg(2, 16#6000#);                                                            -- drive x3.0
-        write_reg(3, 16#7FFF#);                                                            -- threshold just under 0.5
+        write_reg(1, 16#1000#);                                                                  -- out gain 0.5
+        write_reg(2, 16#6000#);                                                                  -- drive x3.0
+        write_reg(3, 16#7FFF#);                                                                  -- threshold just under 0.5
         check_read(1, 16#1000#);
         check_read(2, 16#6000#);
-        write_reg(4, 16#8000#);                                                            -- depth 1.0
-        write_reg(5, 16#06D4#);                                                            -- rate 5 Hz
+        write_reg(4, 16#8000#);                                                                  -- depth 1.0
+        write_reg(5, 16#06D4#);                                                                  -- rate 5 Hz
         check_read(3, 16#7FFF#);
         check_read(4, 16#8000#);
         check_read(5, 16#06D4#);
@@ -302,13 +348,43 @@ begin
         write_reg(5, 1);
         check_outputs("depth 0, rate 1", -4, 16#6000# * 4,
                       16#7FFF# * 128, 0, 256);
+        -- delay: 500 ms, feedback just under 1.0, mix 1.0 (positive, not -1.0)
+        write_reg(6, 24000);
+        write_reg(7, 16#7FFF#);
+        write_reg(8, 16#8000#);
+        check_read(6, 24000);
+        check_read(7, 16#7FFF#);
+        check_read(8, 16#8000#);
+        check_delay("delay writes", 24000, 32767, 32768);
+        -- feedback and mix at 0xFFFF: still positive (delay_stage clamps)
+        write_reg(7, 16#FFFF#);
+        write_reg(8, 16#FFFF#);
+        check_delay("max feedback, mix", 24000, 65535, 65535);
+        -- delay time clamp: bit 15 set -> 0x7FFF; the register keeps the value
+        write_reg(6, 16#8000#);
+        check_read(6, 16#8000#);
+        check_delay("delay 0x8000", 16#7FFF#, 65535, 65535);
+        write_reg(6, 16#FFFF#);
+        check_read(6, 16#FFFF#);
+        check_delay("delay 0xFFFF", 16#7FFF#, 65535, 65535);
+        write_reg(6, 16#7FFF#);
+        check_delay("delay 0x7FFF", 16#7FFF#, 65535, 65535);
+        write_reg(6, 1);
+        check_delay("delay 1", 1, 65535, 65535);
+        write_reg(6, 0);
+        check_delay("delay 0", 0, 65535, 65535);
+        -- leave known values for section 4
+        write_reg(6, 9000);
+        write_reg(7, 0);
+        write_reg(8, 16#4000#);
+        check_delay("delay 9000, feedback 0, mix 0.5", 9000, 0, 16#4000#);
         report "3 writes: ok"
             severity note;
 
         -- 4. Writes to read-only / unknown addresses change nothing.
         write_reg(16#10#, 16#ABCD#);
         write_reg(16#7F#, 16#ABCD#);
-        write_reg(16#06#, 16#ABCD#);
+        write_reg(16#09#, 16#ABCD#);
         write_reg(16#55#, 16#ABCD#);
         check_read(0, 0);
         check_read(1, 16#FFFF#);
@@ -316,12 +392,15 @@ begin
         check_read(3, 16#7FFF#);
         check_read(4, 0);
         check_read(5, 1);
+        check_read(6, 9000);
+        check_read(7, 0);
+        check_read(8, 16#4000#);
         check_read(16#7F#, 3);
         report "4 read-only and unknown writes ignored: ok"
             severity note;
 
         -- 5. Switches vs PC.
-        for i in 0 to 15 loop                                                              -- PC control off: switches
+        for i in 0 to 15 loop                                                                    -- PC control off: switches
 
             sw            := to_unsigned(i, 4);
             sw_distortion <= sw(0);
@@ -329,14 +408,18 @@ begin
             sw_tremolo    <= sw(2);
             sw_tone       <= sw(3);
             wait for 1 ns;
-            check_fx("switches " & integer'image(i), sw(0), sw(1), sw(2), sw(3), '0');
+            check_fx("switches " & integer'image(i), sw(0), sw(1), sw(2), sw(3), '0', '0');
 
         end loop;
+
+        -- control bit 4 without PC control: no switch for the delay, so off
+        write_reg(0, 16#0010#);
+        check_fx("bit 4, no PC control", sw_distortion, sw_soft, sw_tremolo, sw_tone, '0', '0');
 
         -- PC control on, distortion + tremolo + tone on, soft off
         write_reg(0, 16#008D#);
 
-        for i in 0 to 15 loop                                                              -- switches ignored
+        for i in 0 to 15 loop                                                                    -- switches ignored
 
             sw            := to_unsigned(i, 4);
             sw_distortion <= sw(0);
@@ -344,16 +427,22 @@ begin
             sw_tremolo    <= sw(2);
             sw_tone       <= sw(3);
             wait for 1 ns;
-            check_fx("PC control, switches " & integer'image(i), '1', '0', '1', '1', '1');
+            check_fx("PC control, switches " & integer'image(i), '1', '0', '1', '1', '0', '1');
 
         end loop;
 
         -- PC control on, soft clip only: tone off although SW3 is up
         write_reg(0, 16#0082#);
-        check_fx("PC control, soft only", '0', '1', '0', '0', '1');
+        check_fx("PC control, soft only", '0', '1', '0', '0', '0', '1');
 
-        write_reg(0, 16#000A#);                                                            -- bit 7 = 0: switches
-        check_fx("back to switches", sw_distortion, sw_soft, sw_tremolo, sw_tone, '0');
+        -- PC control on, delay only, then delay + distortion
+        write_reg(0, 16#0090#);
+        check_fx("PC control, delay only", '0', '0', '0', '0', '1', '1');
+        write_reg(0, 16#0091#);
+        check_fx("PC control, delay + distortion", '1', '0', '0', '0', '1', '1');
+
+        write_reg(0, 16#000A#);                                                                  -- bit 7 = 0: switches
+        check_fx("back to switches", sw_distortion, sw_soft, sw_tremolo, sw_tone, '0', '0');
         report "5 switches vs PC: ok"
             severity note;
 
@@ -374,8 +463,12 @@ begin
         check_read(3, 8192);
         check_read(4, 16384);
         check_read(5, 1748);
+        check_read(6, 12000);
+        check_read(7, 16384);
+        check_read(8, 16384);
         check_outputs("after reset", 1024, 65536, 2 ** 20,
                       16384, 1748 * 256);
+        check_delay("after reset", 12000, 16384, 16384);
         report "7 reset: ok"
             severity note;
 
