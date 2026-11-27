@@ -10,14 +10,16 @@ Protocol (docs/uart.md section 5): every command is 3 bytes,
 Usage (repo root):
     .venv\Scripts\python model\fx.py write out_gain 0.5
     .venv\Scripts\python model\fx.py write tremolo_rate 6.5
+    .venv\Scripts\python model\fx.py write delay_time 300
+    .venv\Scripts\python model\fx.py write control 0x90   (PC control, delay on)
     .venv\Scripts\python model\fx.py read out_gain
     .venv\Scripts\python model\fx.py status
     add --port COM5 for the Arty's COM port, or --fake to test without a board
 
 Steps 1..3 (conversions, send_command, write_reg / read_reg) user-written;
 step 4 (command line) and fake_fpga.py by Claude. Stage 2 (tremolo
-registers): conversions user-written, the rest by Claude. No arguments:
-self-test.
+registers): conversions user-written, the rest by Claude. Stage 3 (delay
+registers): the same split. No arguments: self-test.
 """
 
 import argparse
@@ -34,19 +36,23 @@ READ_FLAG = 0x80  # byte 1 bit 7: this command is a read
 BAUD = 115200
 REPLY_TIMEOUT_S = 0.1  # wait this long for a reply before resending
 TRIES = 3  # attempts per command
-SAMPLE_RATE = 48000  # Hz: the tremolo's phase step is worked out for this
+SAMPLE_RATE = 48000  # Hz: the tremolo's phase step and the delay time are worked out for this
+DELAY_MAX = 0x7FFF  # samples: the longest delay (15 bits, about 682.6 ms)
 
 # --- Register map (docs/uart.md, ctrl_regs) ---------------------------------
 # name: (register number, format).
-# Formats: "bits", "q3_13", "q0_16", "q1_15", "rate", "raw".
+# Formats: "bits", "q3_13", "q0_16", "q1_15", "rate", "delay", "feedback", "raw".
 
 REGISTERS = {
-    "control": (0x00, "bits"),  # bit 0 distortion, 1 soft, 2 tremolo, 3 tone, 7 PC
+    "control": (0x00, "bits"),  # bit 0 distortion, 1 soft, 2 tremolo, 3 tone, 4 delay, 7 PC
     "out_gain": (0x01, "q3_13"),
     "drive_gain": (0x02, "q3_13"),
     "threshold": (0x03, "q0_16"),
     "tremolo_depth": (0x04, "q1_15"),  # 0.0 .. 1.0
     "tremolo_rate": (0x05, "rate"),  # Hz; register = phase step / 256
+    "delay_time": (0x06, "delay"),  # ms; register = samples, 1 .. 0x7FFF
+    "delay_feedback": (0x07, "feedback"),  # 0.0 .. below 1.0 (Q1.15)
+    "delay_mix": (0x08, "q1_15"),  # 0.0 dry .. 1.0 echo only: the depth's format
     "live": (0x10, "bits"),  # read only
     "version": (0x7F, "raw"),  # read only
 }
@@ -204,6 +210,74 @@ def reg_to_rate(value: int) -> float:
     return value * 256 * SAMPLE_RATE / 2**32
 
 
+# --- Stage 3 conversions: delay time and feedback (user to write) ----------
+# The mix needs no new functions: it is Q1.15, 0.0 .. 1.0 like the tremolo
+# depth, so depth_to_q1_15 / q1_15_to_depth already do it.
+
+
+def delay_to_reg(delay_ms: float) -> int:
+    """Convert a delay time to the 16-bit value for register 0x06.
+
+    The register holds the delay in samples: SAMPLE_RATE samples a second,
+    so delay_ms / 1000 seconds is that many samples.
+
+    Args:
+        delay_ms: the delay in milliseconds, about 0.02 .. 682.6.
+
+    Returns:
+        The number of samples, 1 .. DELAY_MAX (0x7FFF).
+
+    Raises:
+        ValueError: fewer than 1 sample after rounding (0 would read the
+            oldest sample in the buffer, not a short delay), or more than
+            DELAY_MAX (the FPGA would clamp it; refuse it here with a clear
+            error instead).
+    """
+    # TODO: ms -> samples, rounded to a whole number
+    # TODO: refuse anything outside 1 .. DELAY_MAX (ValueError with the ms
+    #       and the limits in the message)
+    # TODO: return it (positive and checked: already a 16-bit value)
+    raise NotImplementedError
+
+
+def reg_to_delay(value: int) -> float:
+    """Convert register 0x06's value read back from the FPGA to milliseconds.
+
+    Args:
+        value: the 16-bit value, 0 .. 0xFFFF.
+
+    Returns:
+        The delay in ms that the FPGA really uses.
+    """
+    # TODO: the reverse of delay_to_reg. One catch: the register keeps
+    #       whatever was written (a raw "write delay_time" can't, but a
+    #       raw write to 0x06 could store 0x8000 or more), while the FPGA
+    #       clamps what it uses to DELAY_MAX. Report what it uses.
+    raise NotImplementedError
+
+
+def feedback_to_q1_15(feedback: float) -> int:
+    """Convert a delay feedback to the 16-bit Q1.15 value for register 0x07.
+
+    Args:
+        feedback: how much of each echo repeats, 0.0 (one echo) .. below
+            1.0 (each repeat almost as loud as the last).
+
+    Returns:
+        The 16-bit value to send, 0 .. 0x7FFF.
+
+    Raises:
+        ValueError: feedback is negative, or 1.0 or more after rounding (at
+            1.0 the echoes never fade; above it they grow until they clip).
+            The FPGA clamps these too; refusing here gives a clear error.
+    """
+    # TODO: scale to Q1.15 and round (like depth_to_q1_15)
+    # TODO: the range check differs from the depth's: 1.0 (0x8000) itself is
+    #       refused. Mind values like 0.99999 that round up to 0x8000.
+    # TODO: return it
+    raise NotImplementedError
+
+
 # --- Step 2: one command, with retries ---------------------------------------
 
 
@@ -300,6 +374,10 @@ def to_raw(fmt: str, text: str) -> int:
         return depth_to_q1_15(float(text))
     if fmt == "rate":
         return rate_to_reg(float(text))
+    if fmt == "delay":
+        return delay_to_reg(float(text))
+    if fmt == "feedback":
+        return feedback_to_q1_15(float(text))
     value = int(text, 0)  # base from the prefix: 0x.. hex, 0b.. binary, else decimal
     if not 0 <= value <= 0xFFFF:
         raise ValueError(f"{text} is not a 16-bit value")
@@ -324,8 +402,12 @@ def from_raw(fmt: str, value: int) -> str:
         return f"{q1_15_to_depth(value):.5f}"
     if fmt == "rate":
         return f"{reg_to_rate(value):.4f} Hz"
+    if fmt == "delay":
+        return f"{reg_to_delay(value):.3f} ms"
+    if fmt == "feedback":
+        return f"{q1_15_to_depth(value):.5f}"  # same scaling as the depth
     if fmt == "bits":
-        return f"0b{value:09b}"  # 9 binary digits (bits 0..8): easy to see which are on
+        return f"0b{value:010b}"  # 10 binary digits (bits 0..9): easy to see which are on
     return str(value)
 
 
@@ -333,8 +415,8 @@ def show_status(port: Port) -> None:
     """Print what the pedal is doing: version, live state and the settings.
 
     Reads 0x7F (version) and 0x10 (live state: bits 0..3 effects actually
-    on, bits 4..6 switches SW0..SW2, bit 7 PC control, bit 8 switch SW3),
-    then the settings.
+    on, bits 4..6 switches SW0..SW2, bit 7 PC control, bit 8 switch SW3,
+    bit 9 delay actually on), then the settings.
 
     Args:
         port: where to send.
@@ -352,11 +434,21 @@ def show_status(port: Port) -> None:
     print(f"distortion: {on(0)} ({kind} clip)")
     print(f"tremolo:    {on(2)}")
     print(f"tone:       {on(3)}")
+    print(f"delay:      {on(9)} (PC only)")
     sw = [(live >> b) & 1 for b in (4, 5, 6, 8)]
     print(f"switches:   SW0 {sw[0]}  SW1 {sw[1]}  SW2 {sw[2]}  SW3 {sw[3]}")
-    for name in ("out_gain", "drive_gain", "threshold", "tremolo_depth", "tremolo_rate"):
+    for name in (
+        "out_gain",
+        "drive_gain",
+        "threshold",
+        "tremolo_depth",
+        "tremolo_rate",
+        "delay_time",
+        "delay_feedback",
+        "delay_mix",
+    ):
         reg, fmt = REGISTERS[name]
-        print(f"{name + ':':<15} {from_raw(fmt, read_reg(port, reg))}")
+        print(f"{name + ':':<16} {from_raw(fmt, read_reg(port, reg))}")
 
 
 def main() -> None:
@@ -367,7 +459,11 @@ def main() -> None:
     sub = parser.add_subparsers(dest="cmd", required=True)
     w = sub.add_parser("write", help="write a register")
     w.add_argument("name", choices=REGISTERS)
-    w.add_argument("value", help="e.g. 0.5 (gain, threshold, depth), 5 (rate, Hz), 0x85 (control)")
+    w.add_argument(
+        "value",
+        help="e.g. 0.5 (gain, threshold, depth, feedback, mix), 5 (rate, Hz), "
+        "300 (delay, ms), 0x85 (control)",
+    )
     r = sub.add_parser("read", help="read a register")
     r.add_argument("name", choices=REGISTERS)
     sub.add_parser("status", help="show what the pedal is doing")
@@ -436,7 +532,7 @@ def self_test() -> None:
     write_reg(fake, 0x03, 0x1234)
     assert read_reg(fake, 0x03) == 0x1234
     assert read_reg(fake, 0x01) == 0x1000  # out_gain written above
-    assert read_reg(fake, 0x7F) == 2  # version
+    assert read_reg(fake, 0x7F) == 3  # version
     print("write_reg / read_reg ok")
 
     # Step 4: helpers.
@@ -475,6 +571,40 @@ def self_test() -> None:
     write_reg(fake, 0x00, 0x82)  # PC control, soft clip only
     assert read_reg(fake, 0x10) == 0x182  # tone off, SW3 still shown
     print("tremolo depth / rate ok")
+
+    # Stage 3: delay time, feedback and mix.
+    assert delay_to_reg(250.0) == 12000  # top's default
+    assert delay_to_reg(682.6) == 32765  # 32764.8, rounded
+    assert delay_to_reg(682.65) == 0x7FFF  # 32767.2: the longest delay
+    assert reg_to_delay(12000) == 250.0
+    assert reg_to_delay(0x8000) == reg_to_delay(0x7FFF)  # the FPGA clamps: report that
+    for bad in (0.0, -5.0, 683.0):
+        try:
+            delay_to_reg(bad)
+            raise AssertionError(f"delay {bad} ms did not raise")
+        except ValueError:
+            pass
+    assert feedback_to_q1_15(0.5) == 0x4000
+    assert feedback_to_q1_15(0.0) == 0
+    assert feedback_to_q1_15(0.99) == 32440  # 32440.32
+    for bad in (1.0, 0.99999, 1.5, -0.1):
+        try:
+            feedback_to_q1_15(bad)
+            raise AssertionError(f"feedback {bad} did not raise")
+        except ValueError:
+            pass
+    assert to_raw("q1_15", "1.0") == 0x8000  # mix 1.0 is fine (echo only)
+    fake = FakeFpga()
+    assert read_reg(fake, 0x06) == 12000  # default 250 ms
+    assert read_reg(fake, 0x07) == 0x4000  # default feedback 0.5
+    assert read_reg(fake, 0x08) == 0x4000  # default mix 0.5
+    write_reg(fake, 0x00, 0x10)  # delay bit without PC control: still off
+    assert read_reg(fake, 0x10) & 0x200 == 0
+    write_reg(fake, 0x00, 0x90)  # PC control + delay
+    assert read_reg(fake, 0x10) == 0x290  # delay on (bit 9), PC (bit 7), bit 4 = SW0 off
+    write_reg(fake, 0x06, to_raw("delay", "300"))
+    assert from_raw("delay", read_reg(fake, 0x06)) == "300.000 ms"
+    print("delay time / feedback / mix ok")
 
 
 if __name__ == "__main__":

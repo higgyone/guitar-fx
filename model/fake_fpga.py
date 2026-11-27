@@ -25,8 +25,18 @@ class FakeFpga:
 
     def __init__(self) -> None:
         """Start with the ctrl_regs defaults and the switches all off."""
-        self.regs = {0x00: 0, 0x01: 256, 0x02: 16384, 0x03: 8192, 0x04: 16384, 0x05: 1748}
-        self.version = 2
+        self.regs = {
+            0x00: 0,
+            0x01: 256,
+            0x02: 16384,
+            0x03: 8192,
+            0x04: 16384,
+            0x05: 1748,
+            0x06: 12000,  # delay 250 ms
+            0x07: 16384,  # feedback 0.5
+            0x08: 16384,  # mix 0.5
+        }
+        self.version = 3
         self.switches = 0b0000  # SW3 SW2 SW1 SW0, as on the board
         self._rx: list[int] = []  # bytes of the command being received
         self._tx = bytearray()  # reply bytes waiting to be read
@@ -43,7 +53,9 @@ class FakeFpga:
         self._lose_reply = True
 
     def _live(self) -> int:
-        """Register 0x10: effects on (bits 0..3), SW0..SW2 (4..6), PC control (7), SW3 (8).
+        """Register 0x10: effects on (0..3), SW0..SW2 (4..6), PC control (7), SW3 (8), delay on (9).
+
+        The delay has no switch: it is on only under PC control with bit 4 set.
 
         Returns:
             The 16-bit live-state value.
@@ -51,7 +63,8 @@ class FakeFpga:
         pc = (self.regs[0x00] >> 7) & 1
         fx = self.regs[0x00] & 0b1111 if pc else self.switches
         sw = self.switches
-        return fx | ((sw & 0b111) << 4) | (pc << 7) | (((sw >> 3) & 1) << 8)
+        delay = (self.regs[0x00] >> 4) & 1 if pc else 0
+        return fx | ((sw & 0b111) << 4) | (pc << 7) | (((sw >> 3) & 1) << 8) | (delay << 9)
 
     def _reply(self, data: bytes) -> None:
         """Queue reply bytes, unless the next reply is to be lost.

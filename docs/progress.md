@@ -239,9 +239,33 @@ clean in xvhdl -2008, not simulated yet).
   feedback 1/2/1/4/1/8, feedback and mix clamps, mix ends, saturation,
   latency 2). **Passes in xsim: 317 checks, 287 samples.** Mutation check:
   moving the pointer on s_fb_echo_valid fails it at the first echo.
-- **Next:** wire into top after the tone filter (PC control bit 4) and
-  ctrl_regs registers 0x06..0x08 (delay time, feedback, mix) + fx.py
-  conversions (feedback refuses >= 1.0); top_tb mode; build, board test.
+- 2026-11-27, ctrl_regs v3 (user-written, mentor mode): control bit 4
+  delay on (PC only: no switch left, off under the switches), registers
+  0x06 delay time (samples; the output clamps 0x8000+ to 0x7FFF, the
+  register keeps what was written), 0x07 feedback, 0x08 mix (Q1.15, `"00"
+  &` like the depth), live bit 9, version 3. `ctrl_regs_tb` (Claude)
+  extended: defaults, the clamp, fx_delay under switches / PC, live bit 9;
+  passes, and a copy without the clamp fails it.
+- 2026-11-27, top (user-written): delay_stage after the tone mux, before
+  soft_start; generics `g_delay_ms` 250.0, `g_delay_feedback` 0.5,
+  `g_delay_mix` 0.5 converted for ctrl_regs (ms / 1000 x 48 000, x 2**15,
+  rounded). `top_tb` mode 5 (Claude): delay 5/48 ms (checks the ms ->
+  samples conversion), feedback 0.75, mix 0.25 (not 0.5, so swapped gains
+  show); the PC writes control 0x0090 over the UART; a bit-exact delay
+  model checked in place and at the DAC; dry again after the button. All
+  six modes pass in xsim (CLI, real Clocking Wizard model); a copy with
+  dry / echo gains swapped fails mode 5. The version check moved to 3.
+- Lesson: two drivers on a resolved signal (`std_logic`, `signed`) compile
+  fine; they only show as 'X' in simulation and a multiple-driver error
+  in synthesis. Delete the temporary assignments when the real driver
+  arrives.
+- docs/uart.md: "ctrl_regs v3" register table. fx.py: registers,
+  formats, status and self-test done (Claude); the conversions
+  `delay_to_reg`, `reg_to_delay`, `feedback_to_q1_15` are stubs for the
+  user (the mix reuses the depth's).
+- **Next:** fx.py delay conversions (user); build (check WNS, block RAM
+  count: 32 RAMB36 expected), program, board test with the delay turned
+  on from the PC; then PR.
 
 ## Effect #5: tone filter — on the board (2026-11-20, branch `effect-tone`)
 

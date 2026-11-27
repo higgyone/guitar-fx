@@ -356,6 +356,48 @@ writable '0') so every output is assigned on every path — otherwise
 synthesis infers a latch; output wires: fx_* = register bit when PC control
 else switch, gains `& "00"`, threshold `& "0000000"`, s_live aggregate.
 
+### `ctrl_regs` v3: the delay (2026-11-27)
+
+The delay (effect #5, `delay_stage`) gets three registers and an on/off bit.
+`g_version` = 3. All four switches are taken, so **the delay has no switch:
+it is on only under PC control** (bit 7 and bit 4 both set). With no PC it
+stays off, so the pedal behaves exactly as before.
+
+**Register map v3** (v2 plus):
+
+| Reg | Access | Setting | PC sends | FPGA | Default |
+|-----|--------|---------|----------|------|---------|
+| 0x00 | R/W | control | + bit 4 delay on (PC only) | `fx_delay` = bit 4 when PC control, else '0' | bit 7 = 0 |
+| 0x06 | R/W | delay time | samples, 1 .. 0x7FFF (682.6 ms) | bits 14..0 → `delay_samples` (15 bits); 0x8000 and above → 0x7FFF | 12 000 (250 ms) |
+| 0x07 | R/W | delay feedback | Q1.15 unsigned, 0 .. below 1.0 | `"00" &` → Q.15 (18 bits) | 16 384 (0.5) |
+| 0x08 | R/W | delay mix | Q1.15 unsigned, 0 dry .. 1.0 (0x8000) echo only | `"00" &` → Q.15 (18 bits) | 16 384 (0.5) |
+| 0x10 | R | live state | — | + bit 9 delay on | — |
+
+- **Delay time:** the register holds what the PC wrote (all 16 bits, so a
+  read shows it), but the output is clamped: bit 15 set means 32 768 or
+  more, so `delay_samples` gets the maximum (all ones) instead of dropping
+  the bit and wrapping to a short delay (40 000 would become 7 232). fx.py
+  refuses anything outside 1 .. 0x7FFF; 0 would read the oldest sample in
+  the buffer, not a short delay.
+- **Feedback:** 1.0 and above never fade (or grow until they clip), so
+  `delay_stage` clamps to 0x7FFF and fx.py refuses ≥ 1.0 (including values
+  like 0.99999 that round up to 0x8000). Both places on purpose: the
+  hardware guards itself whoever drives the port, the PC gives a clear
+  error.
+- **Mix:** the same format as the tremolo depth (1.0 = echo only must
+  fit), so fx.py reuses `depth_to_q1_15` / `q1_15_to_depth`.
+- **Defaults in top:** `integer(round(g_delay_ms / 1000.0 * 48000.0))`,
+  `integer(round(g_delay_feedback * 32768.0))`,
+  `integer(round(g_delay_mix * 32768.0))`.
+- **fx.py:** `write delay_time 300` (ms), `write delay_feedback 0.6`,
+  `write delay_mix 0.4`, then `write control 0x90` to turn the delay on
+  (PC control, the other effects off; add their bits to keep them on).
+  `status` shows the delay line and the three settings.
+- **Checked by** `ctrl_regs_tb` (defaults, the clamp, `fx_delay` under the
+  switches and the PC, live bit 9) and `top_tb` mode 5 (the delay turned
+  on over the UART, a bit-exact delay model checked in place and at the
+  DAC, dry again after the button resets control).
+
 ### Reading registers (user request, 2026-11-17)
 
 Bit 7 of byte 1 = read. Still 3 bytes (value bytes ignored), so byte
