@@ -263,9 +263,12 @@ clean in xvhdl -2008, not simulated yet).
   formats, status and self-test done (Claude); the conversions
   `delay_to_reg`, `reg_to_delay`, `feedback_to_q1_15` are stubs for the
   user (the mix reuses the depth's).
-- **Next:** fx.py delay conversions (user); build (check WNS, block RAM
-  count: 32 RAMB36 expected), program, board test with the delay turned
-  on from the PC; then PR.
+- **Build (2026-11-27):** WNS +0.667 ns (was +1.605 ns). Block RAM 26
+  RAMB36 + 1 RAMB18; `delay_stage` is 24 RAMB36, not the 32 estimated:
+  Vivado sets each tile up as 32K x 1 bit, one tile per sample bit, so
+  none of the 36-bit width is wasted.
+- **Next:** fx.py delay conversions (user); program, board test with the
+  delay turned on from the PC; then PR.
 
 ## Effect #5: tone filter — on the board (2026-11-20, branch `effect-tone`)
 

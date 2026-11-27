@@ -34,7 +34,8 @@ Tasks that need Vivado. Tick them off on the Vivado PC and push.
   delay conversions): re-run `scripts/create_project.tcl` (new:
   `rtl/delay_stage.vhd`, `sim/delay_stage_tb.vhd`). `top_tb` modes 0..5
   already pass in CLI xsim; build (check WNS, and the utilisation report:
-  ~32 RAMB36 for the delay buffer), program. Then `fx.py --port COMx
+  24 RAMB36 for the delay buffer; built 2026-11-27: WNS +0.667 ns,
+  24 RAMB36 in `delay_stage`), program. Then `fx.py --port COMx
   status` (version 3, delay off, 250 ms / 0.5 / 0.5), `write control 0x90`
   (PC control, delay only: echoes 250 ms apart, each half the last),
   `write delay_time 400`, `write delay_feedback 0.8` (longer tail),

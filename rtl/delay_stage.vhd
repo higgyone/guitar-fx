@@ -28,10 +28,12 @@
 -- the old value. Moving it earlier would make every echo one sample late.
 --
 -- Block RAM: written in the inference pattern (registered read, no reset
--- on the array), 1024 x 24 bits per RAMB36, so 2**15 samples = 32 of the
--- A7-35T's 50. The RAM reads every clock, so the echo for the next sample
--- is waiting in s_ram_rdata long before it arrives. Starts as zeros
--- (silence): an initial value, which Vivado puts in the bitstream.
+-- on the array). Vivado sets each RAMB36 up as 32K x 1 bit and puts 24
+-- side by side, one per sample bit: 24 of the A7-35T's 50 (build of
+-- 2026-11-27; the whole design uses 26.5). The RAM reads every clock, so
+-- the echo for the next sample is waiting in s_ram_rdata long before it
+-- arrives. Starts as zeros (silence): an initial value, which Vivado puts
+-- in the bitstream.
 --
 -- Timing for one sample (clock 0 = sample_in_valid):
 --   0: three gain_stages start (echo x feedback, in x (1 - mix),
